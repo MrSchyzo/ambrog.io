@@ -1,0 +1,6 @@
+services:
+  ambrogio:
+    container_name: ambrogio
+    image: ambrogio:1.0.0
+    env_file:
+      - .env

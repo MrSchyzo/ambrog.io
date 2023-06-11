@@ -1,3 +1,4 @@
+use std::env;
 use std::str::FromStr;
 use log::warn;
 use teloxide::prelude::*;
@@ -8,7 +9,8 @@ async fn main() {
     warn!("Booting up ambrog.io");
 
     let bot = Bot::from_env();
-    let user_id = u64::from_str(env!("USER_ID", "Expecting USER_ID env var"))
+    let user_id_string = env::var("USER_ID").expect("Expecting USER_ID env var");
+    let user_id = u64::from_str(&user_id_string)
         .map(UserId)
         .expect("Expecting numeric USER_ID env var");
     let chat_id = ChatId::from(user_id);
