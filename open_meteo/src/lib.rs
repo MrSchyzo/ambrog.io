@@ -1,130 +1,90 @@
-use std::env;
 use std::fmt::Display;
-use std::str::FromStr;
 use std::sync::Arc;
+use derive_builder::Builder;
+use async_trait::async_trait;
 use chrono::{TimeZone, DateTime};
-use log::{info, error};
 use reqwest::Client;
 use serde::Deserialize;
-use teloxide::prelude::*;
-use teloxide::types::Recipient;
 
-#[tokio::main]
-async fn main() {
-    pretty_env_logger::init();
-    info!("Booting up ambrog.io");
-
-    let client = match reqwest::ClientBuilder::new().build(){
-        Ok(client) => Arc::new(client),
-        Err(err) => {
-            error!("HTTP client cannot be created: {err}");
-            return;
-        }
-    };
-
-    let super_user_id = match super_user_id_from_env("USER_ID") {
-        Ok(u) => u,
-        Err(str) => {
-            error!("Unable to get super user id: {str}");
-            return;
-        } 
-    };
-
-    let chat_id = ChatId::from(super_user_id);
-    let super_user = Recipient::from(super_user_id.clone());
-
-    let bot = Bot::from_env();
-    let _ = bot.send_message(super_user, "Ambrog.io greets you, sir!").await;
-
-    teloxide::repl(bot, move |bot: Bot, msg: Message| {
-        let client = client.clone();
-        let chat_id = chat_id.clone();
-
-        async move {
-            let user = msg.chat.username().unwrap_or("N/A");
-            let text = msg.text().unwrap_or("N/A");
-            if msg.chat.id != chat_id {
-                return Ok(());
-            }
-            if !text.starts_with("meteo") {
-                bot.send_message(chat_id, format!("{text} to you, {user}!")).await.ok();
-                return Ok(());
-            }
-            let city = text.split(" ").into_iter().nth(1).unwrap_or("Pistoia");
-            let message = match weather_forecast_tomorrow(client.clone(), city).await {
-                Ok(m) => {
-                    let time = m.time_series.first().map(|t| format!("{}", t.time.with_timezone(&chrono_tz::Europe::Rome).format("%d/%m/%Y"))).unwrap_or("today".to_owned());
-                    format!("Meteo {time} {city}\n----------------------------\n{m}")
-                }
-                Err(e) => {
-                    format!("No meteo: {e}")
-                }
-            };
-            bot.send_message(chat_id, message).await.ok();
-
-            Ok(())
-        }
-    }).await;
+#[derive(Builder)]
+pub struct ForecastRequest {
+    past_days: u8,
+    future_days: u8,
+    place_name: String,
 }
 
-fn super_user_id_from_env(env_var: &str) -> Result<UserId, String> {
-    let string = env::var(env_var)
-        .map_err(|_| format!("{env_var} environment variable not found"))?;
 
-    u64::from_str(&string)
-        .map_err(|_| format!("{env_var} environment variable is not u64, got '{string}'"))
-        .map(UserId)
+#[async_trait]
+pub trait ForecastClient {
+    async fn weather_forecast(&self, request: &ForecastRequest) -> Result<Meteo, String>;
 }
 
-async fn weather_forecast_tomorrow(client: Arc<Client>, place_name: &str) -> Result<Meteo, String> {
-    let geo = geolocalise(client.clone(), place_name).await.map_err(|err| format!("{err}"))?;
+pub struct ReqwestForecastClient {
+    client: Arc<Client>,
+    geocoding_root_url: String,
+    forecast_root_url: String,
+}
 
-    let url = reqwest::Url::parse_with_params(
-        "https://api.open-meteo.com/v1/forecast", 
-        &[
-            ("latitude", &geo.latitude.to_string()), 
-            ("longitude", &geo.longitude.to_string()), 
-            ("hourly", &"temperature_2m,precipitation_probability,precipitation,windspeed_10m,winddirection_10m".to_string()),
-            ("timezone", &geo.timezone.to_string()),
-            ("past_days", &"0".to_string()),
-            ("forecast_days", &"1".to_string()),
-        ]
-    ).map_err(|err| format!("{err}"))?;
+impl ReqwestForecastClient {
+    pub fn new(client: Arc<Client>, geocoding_root_url: String, forecast_root_url: String) -> Self {
+        Self { forecast_root_url, geocoding_root_url, client }
+    }
+
+    async fn geolocalise(&self, place_name: &str) -> Result<Geolocalisation, String> {
+        let root = self.geocoding_root_url.as_str();
+        let url = reqwest::Url::parse_with_params(
+            format!("{root}/v1/search?format=json&count=100").as_str(), 
+            &[
+                ("name", place_name), 
+                ("count", "1"), 
+                ("language", "it")
+            ]
+        ).map_err(|err| format!("{err}"))?;
+        
+        let request = self.client.get(url)
+            .build()
+            .map_err(|err| format!("{err}"))?;
+
+        self.client.execute(request).await
+            .map_err(|err| format!("{err}"))?
+            .json::<Geocoding>().await
+            .map_err(|err| format!("{err}"))?
+            .results
+            .into_iter().nth(0)
+            .ok_or(format!("'{place_name}' without hits"))?
+            .try_into()
+    }
+
+}
+
+#[async_trait]
+impl ForecastClient for ReqwestForecastClient {
+    async fn weather_forecast(&self, request: &ForecastRequest) -> Result<Meteo, String> {
+        let root = self.forecast_root_url.as_str();
+        let geo = self.geolocalise(&request.place_name).await?;
+        
+        let url = reqwest::Url::parse_with_params(
+            format!("{root}/v1/forecast").as_str(), 
+            &[
+                ("latitude", &geo.latitude.to_string()), 
+                ("longitude", &geo.longitude.to_string()), 
+                ("hourly", &"temperature_2m,precipitation_probability,precipitation,windspeed_10m,winddirection_10m".to_string()),
+                ("timezone", &geo.timezone.to_string()),
+                ("past_days", &request.past_days.to_string()),
+                ("forecast_days", &request.future_days.to_string()),
+            ]
+        ).map_err(|err| format!("{err}"))?;
+        
+        let request = self.client.get(url)
+            .build()
+            .map_err(|err| format!("{err}"))?;
     
-    let request = client.get(url)
-        .build()
-        .map_err(|err| format!("{err}"))?;
-
-    client.execute(request).await
-        .map_err(|err| format!("{err}"))?
-        .json::<Forecast>().await
-        .map_err(|err| format!("{err}"))?
-        .try_into()
-}
-
-async fn geolocalise(client: Arc<Client>, place_name: &str) -> Result<Geolocalisation, String> {
-    // v1/search?name=Pistoia&count=100&language=it&format=json
-    let url = reqwest::Url::parse_with_params(
-        "https://geocoding-api.open-meteo.com/v1/search?format=jsonname=Pistoia&count=100&language=it&format=json", 
-        &[
-            ("name", place_name), 
-            ("count", "1"), 
-            ("language", "en")
-        ]
-    ).map_err(|err| format!("{err}"))?;
-    
-    let request = client.get(url)
-        .build()
-        .map_err(|err| format!("{err}"))?;
-
-    client.execute(request).await
-        .map_err(|err| format!("{err}"))?
-        .json::<Geocoding>().await
-        .map_err(|err| format!("{err}"))?
-        .results
-        .into_iter().nth(0)
-        .ok_or(format!("'{place_name}' without hits"))?
-        .try_into()
+        self.client.execute(request).await
+            .map_err(|err| format!("{err}"))?
+            .json::<Forecast>().await
+            .map_err(|err| format!("{err}"))?
+            .try_into()
+    }   
 }
 
 #[derive(Deserialize)]
@@ -228,7 +188,7 @@ impl TryFrom<Forecast> for Meteo {
     }
 }
 
-struct Meteo {
+pub struct Meteo {
     pub time_series: Vec<Weather>,
 }
 impl Display for Meteo {
@@ -240,7 +200,7 @@ impl Display for Meteo {
     }
 }
 
-struct Weather {
+pub struct Weather {
     pub time: DateTime<chrono::Utc>,
     pub temperature_2m: HumanReadableMeasure,
     pub precipitation: HumanReadableMeasure,
@@ -261,7 +221,7 @@ impl Display for Weather {
     }
 }
 
-struct HumanReadableMeasure(f64, String);
+pub struct HumanReadableMeasure(f64, String);
 
 impl Display for HumanReadableMeasure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
