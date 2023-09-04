@@ -2,11 +2,6 @@ volumes:
   redis:
 
 services:
-  ambrogio:
-    container_name: ambrogio
-    image: ambrogio:1.0.0
-    env_file:
-      - .env
   redis:
     image: redis:alpine
     command: redis-server --appendonly yes

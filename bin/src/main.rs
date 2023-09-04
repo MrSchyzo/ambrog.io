@@ -1,23 +1,35 @@
 use std::env;
 use std::str::FromStr;
 use std::sync::Arc;
+use log::warn;
 use log::{info, error};
 use teloxide::prelude::*;
 use teloxide::types::Recipient;
 use open_meteo::{ReqwestForecastClient, ForecastClient, ForecastRequestBuilder};
+use users::RedisUserRepository;
+use users::UserRepository;
 
 #[tokio::main]
 async fn main() {
     pretty_env_logger::init();
     info!("Booting up ambrog.io");
 
-    let client = match reqwest::ClientBuilder::new().build(){
+    let client = match reqwest::ClientBuilder::new().build() {
         Ok(client) => Arc::new(client),
         Err(err) => {
             error!("HTTP client cannot be created: {err}");
             return;
         }
     };
+
+    let redis = match redis::Client::open("redis://127.0.0.1") {
+        Ok(client) => client,
+        Err(e) => {
+            error!("Redis client cannot be created: {e}");
+            return;
+        }
+    };
+    let redis_connection = redis.get_multiplexed_tokio_connection().await.unwrap();
 
     let forecast_client = Arc::new(ReqwestForecastClient::new(
         client.clone(), 
@@ -33,25 +45,59 @@ async fn main() {
         } 
     };
 
-    let chat_id = ChatId::from(super_user_id);
-    let super_user = Recipient::from(super_user_id.clone());
+    let super_user_id = ChatId::from(super_user_id);
+    let super_user_dest = Recipient::from(super_user_id.clone());
 
     let bot = Bot::from_env();
-    let _ = bot.send_message(super_user, "Ambrog.io greets you, sir!").await;
+    let _ = bot.send_message(super_user_dest.clone(), "Ambrog.io greets you, sir!").await;
 
     teloxide::repl(bot, move |bot: Bot, msg: Message| {
         let meteo_client = forecast_client.clone();
-        let chat_id = chat_id.clone();
-        let regex = regex::Regex::new(r#"^[Mm]eteo"#).unwrap();
+        let super_user_id = super_user_id.clone();
+        let super_user_dest = super_user_dest.clone();
+        let regex = regex::Regex::new(r#"(?i)^meteo"#).unwrap();
+        let user_admin_command = regex::Regex::new(r#"(?i)^add|remove"#).unwrap();
+        let repo = RedisUserRepository::new(redis_connection.clone());
 
         async move {
             let user = msg.chat.username().unwrap_or("N/A");
             let text = msg.text().unwrap_or("N/A");
-            if msg.chat.id != chat_id {
+            info!("{user} {text}");
+            let user_id = match repo.get(msg.chat.id.0 as u64).await.unwrap() {
+                None if msg.chat.id != super_user_id => {
+                    let chat = msg.chat.id;
+                    bot.send_message(super_user_dest, format!("Who is {chat}?")).await.ok();
+                    return Ok(())
+                },
+                None => super_user_id,
+                Some(user) => ChatId::from(UserId(user.id)),
+            };
+            let dest = Recipient::from(user_id.clone());
+
+            info!("I know {user}: they're {user_id}!");
+            if user_admin_command.is_match(text) && user_id == super_user_id {
+                let new_id = match text.splitn(2, " ").into_iter().nth(1).ok_or("insufficient arguments for command".to_owned()).and_then(|p| u64::from_str(p).map_err(|e| format!("{e}"))) {
+                    Err(e) => {
+                        warn!("User admin command error: {e}");
+                        bot.send_message(dest, format!("User admin command error: {e}!")).await.ok();
+                        return Ok(());
+                    }
+                    Ok(x) => x
+                };
+                let execution = if text.to_lowercase().starts_with("add") {
+                    repo.set(users::User{ id: new_id })
+                } else {
+                    repo.remove(new_id)
+                }.await;
+                match execution {
+                    Ok(_) => bot.send_message(dest, format!("Success in executing '{text}'")).await.ok(),
+                    Err(e) => bot.send_message(dest, format!("Failure in executing '{text}': {e}!")).await.ok(),
+                };
                 return Ok(());
             }
+
             if !regex.is_match(text) {
-                bot.send_message(chat_id, format!("{text} to you, {user}!")).await.ok();
+                bot.send_message(dest, format!("{text} to you, {user}!")).await.ok();
                 return Ok(());
             }
             let city = text.splitn(2, " ").into_iter().nth(1).unwrap_or("Pistoia");
@@ -65,7 +111,7 @@ async fn main() {
                     format!("No meteo: {e}")
                 }
             };
-            bot.send_message(chat_id, message).await.ok();
+            bot.send_message(dest, message).await.ok();
 
             Ok(())
         }
