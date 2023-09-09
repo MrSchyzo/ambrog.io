@@ -15,7 +15,6 @@ async fn main() {
     pretty_env_logger::init();
     info!("Booting up ambrog.io");
 
-
     let client = match reqwest::ClientBuilder::new().build() {
         Ok(client) => Arc::new(client),
         Err(err) => {
@@ -24,14 +23,17 @@ async fn main() {
         }
     };
 
-    let redis = match redis::Client::open("redis://127.0.0.1") {
+    let redis = match env::var("REDIS_URL")
+        .or(Ok("redis://127.0.0.1".to_owned()))
+        .and_then(redis::Client::open)
+    {
         Ok(client) => client,
         Err(e) => {
             error!("Redis client cannot be created: {e}");
             return;
         }
     };
-    
+
     let redis_connection = match redis.get_multiplexed_tokio_connection().await {
         Ok(connection) => connection,
         Err(e) => {
