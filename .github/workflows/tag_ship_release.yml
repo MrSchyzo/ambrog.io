@@ -32,8 +32,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           new_tag="${{ steps.gitops-autover.outputs.new-version }}"
-          git tag $new_tag
-          git push origin $new_tag
+          git tag -f $new_tag
+          git push -f origin $new_tag
           echo "tag=$new_tag" | tee $GITHUB_OUTPUT
 
   publish-release:
