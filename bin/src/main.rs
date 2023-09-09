@@ -15,6 +15,7 @@ async fn main() {
     pretty_env_logger::init();
     info!("Booting up ambrog.io");
 
+    
     let client = match reqwest::ClientBuilder::new().build() {
         Ok(client) => Arc::new(client),
         Err(err) => {
