@@ -1,5 +1,5 @@
 [package]
-name = "ambrogio_users"
+name = "ambrogio_core"
 version = "0.1.0"
 edition = "2021"
 

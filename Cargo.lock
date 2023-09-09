@@ -15,6 +15,8 @@ dependencies = [
 name = "ambrogio_bin"
 version = "0.1.0"
 dependencies = [
+ "ambrogio_core",
+ "ambrogio_users",
  "chrono",
  "chrono-tz",
  "derive_more",
@@ -28,7 +30,34 @@ dependencies = [
  "serde_json",
  "teloxide",
  "tokio",
- "users",
+]
+
+[[package]]
+name = "ambrogio_core"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "derive_builder",
+ "derive_more",
+ "log",
+ "pretty_env_logger",
+ "redis",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ambrogio_users"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "derive_builder",
+ "derive_more",
+ "log",
+ "pretty_env_logger",
+ "redis",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1743,20 +1772,6 @@ dependencies = [
  "idna",
  "percent-encoding",
  "serde",
-]
-
-[[package]]
-name = "users"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "derive_builder",
- "derive_more",
- "log",
- "pretty_env_logger",
- "redis",
- "serde",
- "serde_json",
 ]
 
 [[package]]

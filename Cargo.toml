@@ -2,5 +2,7 @@
 members = [
     "bin",
     "open_meteo",
-    "users"
+    "users",
+    "core"
 ]
+resolver = "2"

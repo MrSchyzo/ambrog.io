@@ -7,7 +7,8 @@ edition = "2021"
 
 [dependencies]
 open_meteo = { path = "../open_meteo" }
-users = { path = "../users" }
+ambrogio_users = { path = "../users" }
+ambrogio_core = { path = "../core" }
 chrono = { version = "0.4" }
 chrono-tz = { version = "0.6" }
 derive_more = "0.99"
