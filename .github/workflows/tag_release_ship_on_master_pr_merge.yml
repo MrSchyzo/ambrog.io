@@ -126,6 +126,12 @@ jobs:
           restore-keys: ${{ runner.os }}-release-cargo-
       - name: Build executable
         run: cargo build --release
+      - name: Some debug
+        run: |
+          pwd
+          ls -halt target/** || true
+          find -iname 'release'
+          find -iname 'ambrogio_bin'
       - name: Build and push
         uses: docker/build-push-action@v4
         with:
