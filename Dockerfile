@@ -1,4 +1,4 @@
-FROM rust:1.72.0-slim-buster
+FROM ubuntu:22.04
 
 RUN mkdir -p /workdir
 
