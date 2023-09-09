@@ -107,7 +107,6 @@ struct Hit {
     pub name: String,
     pub latitude: f64,
     pub longitude: f64,
-    pub elevation: f64,
     pub timezone: String,
 }
 
@@ -119,7 +118,6 @@ impl TryFrom<Hit> for Geolocalisation {
             name: value.name,
             latitude: value.latitude,
             longitude: value.longitude,
-            elevation: value.elevation as i32,
             timezone: value.timezone.parse().map_err(|err| format!("{err}"))?,
         })
     }
@@ -129,7 +127,6 @@ struct Geolocalisation {
     pub name: String,
     pub latitude: f64,
     pub longitude: f64,
-    pub elevation: i32,
     pub timezone: chrono_tz::Tz,
 }
 
