@@ -130,11 +130,12 @@ jobs:
         run: |
           pwd
           ls -halt target/** || true
-          find -iname 'release'
-          find -iname 'ambrogio_bin'
+          find -iname 'release' || true
+          find -iname 'ambrogio_bin' || true
       - name: Build and push
         uses: docker/build-push-action@v4
         with:
+          context: .
           push: true
           tags: "mrschyzo/ambrogio:latest,mrschyzo/ambrogio:${{ needs.github-tag.outputs.tag }}"
       - name: Open me to see the docker image version
