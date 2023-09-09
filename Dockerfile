@@ -1,5 +1,5 @@
 FROM ubuntu:22.04
-RUN apt install -y openssl
+RUN apt update && apt install -y openssl
 
 RUN mkdir -p /workdir
 WORKDIR /workdir
