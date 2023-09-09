@@ -1,3 +1,3 @@
 #!/bin/bash
 
-cargo build --release && docker build -t ambrogio:1.0.0 .
+cargo build --release && docker build -t ambrogio:latest .
