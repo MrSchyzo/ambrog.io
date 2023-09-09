@@ -1,0 +1,14 @@
+name: 'Enforce branch names convention on master PR'
+on: 
+  pull_request:
+    branches: master
+
+jobs:
+  branch-naming-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: deepakputhraya/action-branch-name@v1.0.0
+        with:
+          regex: '(feature|enhancement|fix)\/.+'
+          min_length: 10
+          max_length: 128
