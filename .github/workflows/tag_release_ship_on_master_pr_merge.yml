@@ -15,7 +15,7 @@ on:
 
 jobs:
   github-tag:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     name: Create git tag
     outputs:
       tag: ${{ steps.tagging.outputs.tag }}
@@ -63,7 +63,7 @@ jobs:
           echo "tag=$new_tag" | tee $GITHUB_OUTPUT
 
   publish-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     name: Release tag ${{ needs.github-tag.outputs.tag }}
     needs:
       - github-tag
@@ -85,7 +85,7 @@ jobs:
           gh release create $latest_tag --generate-notes
 
   containerize:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     name: Ship container for tag ${{ needs.github-tag.outputs.tag }}
     needs:
       - github-tag
