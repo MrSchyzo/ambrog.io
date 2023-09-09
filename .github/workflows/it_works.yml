@@ -9,6 +9,8 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v3
+      - name: Install ld linker
+        run: apt install build-essential package
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
