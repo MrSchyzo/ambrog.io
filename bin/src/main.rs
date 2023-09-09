@@ -61,7 +61,7 @@ async fn main() {
 
     let bot = Bot::from_env();
     let _ = bot
-        .send_message(super_user_dest.clone(), "Ambrog.io greets you!")
+        .send_message(super_user_dest.clone(), "Ambrog.io greets you, sir!")
         .await;
 
     teloxide::repl(bot, move |bot: Bot, msg: Message| {
