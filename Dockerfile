@@ -1,4 +1,4 @@
-FROM rust:1.70.0-slim-buster
+FROM rust:1.72.0-slim-buster
 
 RUN mkdir -p /workdir
 
