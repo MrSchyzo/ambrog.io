@@ -30,7 +30,14 @@ async fn main() {
             return;
         }
     };
-    let redis_connection = redis.get_multiplexed_tokio_connection().await.unwrap();
+    
+    let redis_connection = match redis.get_multiplexed_tokio_connection().await {
+        Ok(connection) => connection,
+        Err(e) => {
+            error!("Redis client cannot be created: {e}");
+            return;
+        }
+    };
 
     let forecast_client = Arc::new(ReqwestForecastClient::new(
         client.clone(),

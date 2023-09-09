@@ -1,0 +1,109 @@
+name: 'Tag, Release, and Ship on Docker'
+on:
+  push:
+    paths-ignore:
+      - '.github/**'
+      - '.git*'
+      - 'git_config/**'
+      - 'docs/**'
+      - 'Makefile'
+      - '**.md'
+    branches:
+      - master
+
+jobs:
+  github-tag:
+    runs-on: ubuntu-latest
+    name: Create git tag
+    outputs:
+      tag: ${{ steps.tagging.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v3
+      - id: gitops-autover
+        name: Automatic versioning
+        uses: AlexAtkinson/github-action-gitops-autover@0.1.7
+      - name: Verify Outputs
+        run: |
+          echo "New version: ${{ steps.gitops-autover.outputs.new-version }}"
+          echo "Previous version: ${{ steps.gitops-autover.outputs.previous-version }}"
+      - name: Create Tag
+        id: tagging
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          new_tag="${{ steps.gitops-autover.outputs.new-version }}"
+          git tag -f $new_tag
+          git push -f origin $new_tag
+          echo "tag=$new_tag" | tee $GITHUB_OUTPUT
+
+  publish-release:
+    runs-on: ubuntu-latest
+    name: Release tag ${{ needs.github-tag.outputs.tag }}
+    needs:
+      - github-tag
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ needs.github-tag.outputs.tag }}
+      - name: Fetch all tags
+        run: |
+          git config --global user.email "actions@github.com"
+          git config --global user.name "Github actions"
+          git fetch --tags --unshallow --prune
+      - name: Publish release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          latest_tag=${{ needs.github-tag.outputs.tag }}
+          gh release create $latest_tag --generate-notes
+
+  containerize:
+    runs-on: ubuntu-latest
+    name: Ship container for tag ${{ needs.github-tag.outputs.tag }}
+    needs:
+      - github-tag
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ needs.github-tag.outputs.tag }}
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Install lld
+        run: sudo apt install -y lld
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
+      - name: Set up cargo cache
+        uses: actions/cache@v3
+        continue-on-error: false
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/            
+          key: ${{ runner.os }}-release-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-release-cargo-
+      - name: Build executable
+        run: cargo build --release
+      - name: Build and push
+        uses: docker/build-push-action@v4
+        with:
+          push: true
+          tags: "mrschyzo/ambrogio:latest,mrschyzo/ambrogio:${{ needs.github-tag.outputs.tag }}"
+      - name: Open me to see the docker image version
+        run: echo "📦 Container version is ${{ needs.github-tag.outputs.tag }} 📦"
