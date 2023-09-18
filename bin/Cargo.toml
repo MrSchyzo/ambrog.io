@@ -20,4 +20,5 @@ serde = "1.0"
 teloxide = { version = "0.12", features = ["macros"] }
 tokio = { version =  "1.8", features = ["rt-multi-thread", "macros"] }
 regex = "1.9.4"
+async-trait = "0.1.73"
 redis = "0.23.3"

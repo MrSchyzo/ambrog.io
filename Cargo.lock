@@ -17,6 +17,7 @@ version = "0.1.0"
 dependencies = [
  "ambrogio_core",
  "ambrogio_users",
+ "async-trait",
  "chrono",
  "chrono-tz",
  "derive_more",

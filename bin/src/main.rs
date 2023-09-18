@@ -1,14 +1,19 @@
+mod commands;
+mod telegram;
+
 use ambrogio_users::RedisUserRepository;
-use ambrogio_users::User;
+use ambrogio_users::data::User as AmbrogioUser;
+use ambrogio_users::data::UserId as AmbrogioUserId;
 use ambrogio_users::UserRepository;
-use log::warn;
-use log::{error, info};
+use commands::InboundMessage;
+use log::{error, info, warn};
 use open_meteo::{ForecastClient, ForecastRequestBuilder, ReqwestForecastClient};
 use std::env;
 use std::str::FromStr;
 use std::sync::Arc;
 use teloxide::prelude::*;
 use teloxide::types::Recipient;
+use teloxide::types::User;
 
 #[tokio::main]
 async fn main() {
@@ -56,8 +61,8 @@ async fn main() {
         }
     };
 
-    let super_user_id = ChatId::from(super_user_id);
-    let super_user_dest = Recipient::from(super_user_id.clone());
+    let super_chat_id = ChatId::from(super_user_id);
+    let super_user_dest = Recipient::from(super_chat_id.clone());
 
     let bot = Bot::from_env();
     let _ = bot
@@ -66,31 +71,27 @@ async fn main() {
 
     teloxide::repl(bot, move |bot: Bot, msg: Message| {
         let meteo_client = forecast_client.clone();
-        let super_user_id = super_user_id.clone();
+        let super_user_id = AmbrogioUserId(super_user_id.0);
+        let super_chat_id = super_chat_id.clone();
         let super_user_dest = super_user_dest.clone();
         let regex = regex::Regex::new(r#"(?i)^meteo"#).unwrap();
         let user_admin_command = regex::Regex::new(r#"(?i)^add|remove"#).unwrap();
         let repo = RedisUserRepository::new(redis_connection.clone());
 
         async move {
-            let user = msg.chat.username().unwrap_or("N/A");
-            let text = msg.text().unwrap_or("N/A");
-            info!("{user} {text}");
-            let user_id = match repo.get(msg.chat.id.0 as u64).await.unwrap() {
-                None if msg.chat.id != super_user_id => {
-                    let chat = msg.chat.id;
-                    bot.send_message(super_user_dest, format!("Who is {chat}?"))
-                        .await
-                        .ok();
-                    return Ok(());
-                }
-                None => super_user_id,
-                Some(user) => ChatId::from(UserId(user.id)),
+            let message = match extract_message(&msg, super_user_id) {
+                None => return Ok(()),
+                Some(msg) => msg,
             };
-            let dest = Recipient::from(user_id.clone());
-
-            info!("I know {user}: they're {user_id}!");
-            if user_admin_command.is_match(text) && user_id == super_user_id {
+            let message = match authenticate_user(message, &repo).await {
+                Err(e) => {
+                    info!("Unable to authenticate message: {e}");
+                    return Ok(())
+                },
+                Ok(msg) => msg,
+            };
+            
+            if user_admin_command.is_match(text) && user_id == super_chat_id {
                 let new_id = match text
                     .splitn(2, " ")
                     .into_iter()
@@ -175,3 +176,36 @@ fn super_user_id_from_env(env_var: &str) -> Result<UserId, String> {
         .map_err(|_| format!("{env_var} environment variable is not u64, got '{string}'"))
         .map(UserId)
 }
+
+fn extract_message(msg: &Message, super_user_id: AmbrogioUserId) -> Option<chat::InboundMessage> {
+    msg.from()
+        .zip(msg.text())
+        .map(|(user, text)| chat::InboundMessage {
+            text: text.to_owned(),
+            user: extract_user(user, super_user_id),
+        })
+}
+
+fn extract_user(user: &User, super_user_id: AmbrogioUserId) -> AmbrogioUser {
+    let ambrogio_id = AmbrogioUserId(user.id.0);
+    match (user.username, ambrogio_id) {
+        (_, super_user_id) => AmbrogioUser::SuperUser { id: super_user_id, powers: () }, 
+        (Some(name), id) => AmbrogioUser::NamedUser { id, name },
+        (None, id) => AmbrogioUser::SimpleUser { id }
+    }
+}
+
+async fn authenticate_user(message: InboundMessage, repo: &RedisUserRepository) -> Result<InboundMessage, String> {
+    let user_id = message.user.id();
+
+    if let AmbrogioUser::SuperUser { .. } = message.user {
+        return Ok(message)
+    }
+
+    repo
+        .get(user_id)
+        .await?
+        .ok_or(format!("Unknown user {}", user_id.0))
+        .map(|user| InboundMessage { user, text: message.text })
+}
+
