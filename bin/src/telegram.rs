@@ -1,15 +1,12 @@
 use ambrogio_users::data::UserId as AmbrogioUserId;
 use async_trait::async_trait;
 use teloxide::{Bot, requests::Requester, types::UserId};
-use std::marker::Send;
 
 
 #[async_trait]
-pub trait ThreadUnsafeTelegramProxy {
+pub trait TelegramProxy {
     async fn send_text_to_user(&self, message: String, user_id: AmbrogioUserId) -> Result<(), String>;
 }
-
-pub trait TelegramProxy: ThreadUnsafeTelegramProxy + Send + Sync {}
 
 #[derive(Clone)]
 pub struct TeloxideProxy {
@@ -17,13 +14,13 @@ pub struct TeloxideProxy {
 }
 
 impl TeloxideProxy {
-    fn new(bot: &Bot) -> TeloxideProxy {
+    pub fn new(bot: &Bot) -> TeloxideProxy {
         Self{ bot: bot.clone() }
     }
 }
 
 #[async_trait]
-impl ThreadUnsafeTelegramProxy for TeloxideProxy {
+impl TelegramProxy for TeloxideProxy {
     async fn send_text_to_user(&self, message: String, user_id: AmbrogioUserId) -> Result<(), String> {
             let user = UserId(user_id.0);
             self

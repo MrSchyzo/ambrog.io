@@ -6,35 +6,46 @@ use ambrogio_users::data::User as AmbrogioUser;
 use ambrogio_users::data::UserId as AmbrogioUserId;
 use ambrogio_users::UserRepository;
 use commands::InboundMessage;
-use log::{error, info, warn};
-use open_meteo::{ForecastClient, ForecastRequestBuilder, ReqwestForecastClient};
+use tracing::Level;
+use tracing_subscriber::FmtSubscriber;
+use open_meteo::ReqwestForecastClient;
 use std::env;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::SystemTime;
 use teloxide::prelude::*;
-use teloxide::types::Recipient;
 use teloxide::types::User;
+use telegram::TelegramProxy;
+
+use crate::commands::MessageHandler;
+use crate::commands::echo::EchoMessageHandler;
+use crate::commands::forecast::ForecastHandler;
+use crate::commands::users::UserHandler;
+use crate::telegram::TeloxideProxy;
 
 #[tokio::main]
 async fn main() {
-    pretty_env_logger::init();
-    info!("Booting up ambrog.io");
+    let start = SystemTime::now();
+    setup_global_tracing_subscriber().unwrap();
+    tracing::info!("Booting up ambrog.io");
+
+    let bot = Bot::from_env();
 
     let client = match reqwest::ClientBuilder::new().build() {
         Ok(client) => Arc::new(client),
         Err(err) => {
-            error!("HTTP client cannot be created: {err}");
+            tracing::error!("HTTP client cannot be created: {err}");
             return;
         }
     };
-
+    
     let redis = match env::var("REDIS_URL")
         .or(Ok("redis://127.0.0.1".to_owned()))
         .and_then(redis::Client::open)
     {
         Ok(client) => client,
         Err(e) => {
-            error!("Redis client cannot be created: {e}");
+            tracing::error!("Redis client cannot be created: {e}");
             return;
         }
     };
@@ -42,10 +53,11 @@ async fn main() {
     let redis_connection = match redis.get_multiplexed_tokio_connection().await {
         Ok(connection) => connection,
         Err(e) => {
-            error!("Redis client cannot be created: {e}");
+            tracing::error!("Redis client cannot be created: {e}");
             return;
         }
     };
+    let repo = Arc::new(RedisUserRepository::new(redis_connection.clone()));
 
     let forecast_client = Arc::new(ReqwestForecastClient::new(
         client.clone(),
@@ -56,116 +68,79 @@ async fn main() {
     let super_user_id = match super_user_id_from_env("USER_ID") {
         Ok(u) => u,
         Err(str) => {
-            error!("Unable to get super user id: {str}");
+            tracing::error!("Unable to get super user id: {str}");
             return;
         }
     };
+    
+    greet_master(&bot, super_user_id).await.unwrap();
 
-    let super_chat_id = ChatId::from(super_user_id);
-    let super_user_dest = Recipient::from(super_chat_id.clone());
-
-    let bot = Bot::from_env();
-    let _ = bot
-        .send_message(super_user_dest.clone(), "Ambrog.io greets you, sir!")
-        .await;
-
+    let elapsed = SystemTime::now().duration_since(start).map(|d| d.as_micros()).unwrap_or(0u128);
+    tracing::info!("Ambrogio initialisation took {elapsed}µs");
+    
     teloxide::repl(bot, move |bot: Bot, msg: Message| {
-        let meteo_client = forecast_client.clone();
+        let start = SystemTime::now();
+
+        // Yuck, is there a way to avoid rebuilding the entire dependency tree every time?
         let super_user_id = AmbrogioUserId(super_user_id.0);
-        let super_chat_id = super_chat_id.clone();
-        let super_user_dest = super_user_dest.clone();
-        let regex = regex::Regex::new(r#"(?i)^meteo"#).unwrap();
-        let user_admin_command = regex::Regex::new(r#"(?i)^add|remove"#).unwrap();
-        let repo = RedisUserRepository::new(redis_connection.clone());
+        let telegram_proxy = Arc::new(TeloxideProxy::new(&bot.clone()));
+        let repo = repo.clone();
+        let handlers: Vec<Arc<dyn MessageHandler + Sync + Send>> = vec![
+            Arc::new(ForecastHandler::new(telegram_proxy.clone(), forecast_client.clone())),
+            Arc::new(UserHandler::new(telegram_proxy.clone(), repo.clone())),
+            Arc::new(EchoMessageHandler::new(telegram_proxy.clone())),
+        ];
+
+        let elapsed = SystemTime::now().duration_since(start).map(|d| d.as_micros()).unwrap_or(0u128);
+        tracing::info!("Dependency initialisation took {elapsed}µs");
 
         async move {
             let message = match extract_message(&msg, super_user_id) {
                 None => return Ok(()),
                 Some(msg) => msg,
             };
-            let message = match authenticate_user(message, &repo).await {
+
+            let message = match authenticate_user(message, repo.clone()).await {
                 Err(e) => {
-                    info!("Unable to authenticate message: {e}");
+                    tracing::info!("Unable to authenticate message: {e}");
                     return Ok(())
                 },
                 Ok(msg) => msg,
             };
-            
-            if user_admin_command.is_match(text) && user_id == super_chat_id {
-                let new_id = match text
-                    .splitn(2, " ")
-                    .into_iter()
-                    .nth(1)
-                    .ok_or("insufficient arguments for command".to_owned())
-                    .and_then(|p| u64::from_str(p).map_err(|e| format!("{e}")))
-                {
-                    Err(e) => {
-                        warn!("User admin command error: {e}");
-                        bot.send_message(dest, format!("User admin command error: {e}!"))
-                            .await
-                            .ok();
-                        return Ok(());
+            let user = message.user.id();
+
+            match handlers.iter().find(|h| h.can_accept(&message)) {
+                None => tracing::info!("Unrecognised command from {:?} '{}'", user, message.text),
+                Some(handler) => {
+                    if let Some(error) = handler.handle(message).await.err() {
+                        let _ = telegram_proxy
+                            .send_text_to_user(format!("Unable to execute command: {error}"), user)
+                            .await;
                     }
-                    Ok(x) => x,
-                };
-                let execution = if text.to_lowercase().starts_with("add") {
-                    repo.set(User { id: new_id })
-                } else {
-                    repo.remove(new_id)
-                }
-                .await;
-                match execution {
-                    Ok(_) => bot
-                        .send_message(dest, format!("Success in executing '{text}'"))
-                        .await
-                        .ok(),
-                    Err(e) => bot
-                        .send_message(dest, format!("Failure in executing '{text}': {e}!"))
-                        .await
-                        .ok(),
-                };
-                return Ok(());
-            }
-
-            if !regex.is_match(text) {
-                bot.send_message(dest, format!("{text} to you, {user}!"))
-                    .await
-                    .ok();
-                return Ok(());
-            }
-            let city = text.splitn(2, " ").into_iter().nth(1).unwrap_or("Pistoia");
-            let req = ForecastRequestBuilder::default()
-                .past_days(0)
-                .future_days(2)
-                .place_name(city.to_owned())
-                .build()
-                .unwrap();
-            let message = match meteo_client.weather_forecast(&req).await {
-                Ok(m) => {
-                    let time = m
-                        .time_series
-                        .first()
-                        .map(|t| {
-                            format!(
-                                "{}",
-                                t.time
-                                    .with_timezone(&chrono_tz::Europe::Rome)
-                                    .format("%d/%m/%Y")
-                            )
-                        })
-                        .unwrap_or("today".to_owned());
-                    format!("Meteo {time} {city}\n----------------------------\n{m}")
-                }
-                Err(e) => {
-                    format!("No meteo: {e}")
-                }
+                },
             };
-            bot.send_message(dest, message).await.ok();
 
+            let elapsed = SystemTime::now().duration_since(start).map(|d| d.as_micros()).unwrap_or(0u128);
+            tracing::info!("Executing command took {elapsed}µs");
             Ok(())
         }
     })
     .await;
+}
+
+fn setup_global_tracing_subscriber() -> Result<(), String> {
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(Level::INFO)
+        .with_file(true)
+        .with_line_number(true)
+        .with_target(true)
+        .with_thread_ids(true)
+        .with_thread_names(true)
+        .json()
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber)
+        .map_err(|e| e.to_string())
 }
 
 fn super_user_id_from_env(env_var: &str) -> Result<UserId, String> {
@@ -177,10 +152,10 @@ fn super_user_id_from_env(env_var: &str) -> Result<UserId, String> {
         .map(UserId)
 }
 
-fn extract_message(msg: &Message, super_user_id: AmbrogioUserId) -> Option<chat::InboundMessage> {
+fn extract_message(msg: &Message, super_user_id: AmbrogioUserId) -> Option<commands::InboundMessage> {
     msg.from()
         .zip(msg.text())
-        .map(|(user, text)| chat::InboundMessage {
+        .map(|(user, text)| commands::InboundMessage {
             text: text.to_owned(),
             user: extract_user(user, super_user_id),
         })
@@ -188,14 +163,29 @@ fn extract_message(msg: &Message, super_user_id: AmbrogioUserId) -> Option<chat:
 
 fn extract_user(user: &User, super_user_id: AmbrogioUserId) -> AmbrogioUser {
     let ambrogio_id = AmbrogioUserId(user.id.0);
-    match (user.username, ambrogio_id) {
-        (_, super_user_id) => AmbrogioUser::SuperUser { id: super_user_id, powers: () }, 
+    match (user.username.clone(), ambrogio_id) {
+        (_, id) if id == super_user_id => AmbrogioUser::SuperUser { id, powers: () }, 
         (Some(name), id) => AmbrogioUser::NamedUser { id, name },
         (None, id) => AmbrogioUser::SimpleUser { id }
     }
 }
 
-async fn authenticate_user(message: InboundMessage, repo: &RedisUserRepository) -> Result<InboundMessage, String> {
+async fn greet_master(bot: &Bot, super_user_id: UserId) -> Result<(), String> {
+    let master_name = bot
+        .get_chat(UserId(super_user_id.0))
+        .await
+        .ok()
+        .and_then(|u| u.username().map(|x| x.to_owned()))
+        .unwrap_or("Master".to_owned());
+    
+    bot
+        .send_message(super_user_id, format!("Ambrog.io greets you, {master_name}!"))
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+async fn authenticate_user(message: InboundMessage, repo: Arc<RedisUserRepository>) -> Result<InboundMessage, String> {
     let user_id = message.user.id();
 
     if let AmbrogioUser::SuperUser { .. } = message.user {

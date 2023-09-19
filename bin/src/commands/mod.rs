@@ -1,11 +1,12 @@
-mod echo;
-mod forecast;
+pub mod echo;
+pub mod forecast;
+pub mod users;
 
 use ambrogio_users::data::User;
 use async_trait::async_trait;
 
 #[derive(Debug)]
-pub(crate) struct InboundMessage {
+pub struct InboundMessage {
     pub user: User,
     pub text: String,
 }

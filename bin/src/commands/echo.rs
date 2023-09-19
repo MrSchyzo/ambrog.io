@@ -1,22 +1,25 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 
 use crate::telegram::TelegramProxy;
 
 use super::{InboundMessage, MessageHandler};
 
-struct EchoMessageHandler {
-    telegram: Box<dyn TelegramProxy>
+pub struct EchoMessageHandler {
+    telegram: Arc<dyn TelegramProxy + Send + Sync + 'static>
 }
 
 impl EchoMessageHandler {
-    fn new<C: TelegramProxy + Clone>(telegram: &C) -> Self {
-        Self { telegram: Box::new(telegram.clone()) }
+    pub fn new<Proxy>(telegram: Arc<Proxy>) -> Self
+        where Proxy: TelegramProxy + Send + Sync + 'static {
+        Self { telegram }
     }
 }
 
 #[async_trait]
 impl MessageHandler for EchoMessageHandler {
-    fn can_accept(&self, msg: &InboundMessage) -> bool {
+    fn can_accept(&self, _: &InboundMessage) -> bool {
         true
     }
 
