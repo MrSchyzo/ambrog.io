@@ -1,11 +1,15 @@
+pub mod data;
+
 use async_trait::async_trait;
 use redis::AsyncCommands;
+use data::{UserId,User};
+
 
 #[async_trait]
 pub trait UserRepository {
-    async fn get(&self, id: u64) -> Result<Option<User>, String>;
+    async fn get(&self, id: UserId) -> Result<Option<User>, String>;
     async fn set(&self, user: User) -> Result<bool, String>;
-    async fn remove(&self, id: u64) -> Result<bool, String>;
+    async fn remove(&self, id: UserId) -> Result<bool, String>;
 }
 
 pub struct RedisUserRepository {
@@ -20,24 +24,31 @@ impl RedisUserRepository {
 
 #[async_trait]
 impl UserRepository for RedisUserRepository {
-    async fn get(&self, id: u64) -> Result<Option<User>, String> {
+    async fn get(&self, UserId(id): UserId) -> Result<Option<User>, String> {
         let mut conn = self.connection.clone();
-        let user_id: Option<u64> = conn
+        let user: Option<String> = conn
             .get(format!("user:{id}"))
             .await
             .map_err(|e| format!("{e}"))?;
-        Ok(user_id.map(|_| User { id }))
+
+        user
+            .map(|u| serde_json::from_str::<User>(&u))
+            .transpose()
+            .map_err(|e| e.to_string())
     }
+
     async fn set(&self, user: User) -> Result<bool, String> {
         let mut conn = self.connection.clone();
-        let id = user.id;
+        let UserId(id) = user.id();
+        let payload = serde_json::to_string(&user).map_err(|e| e.to_string())?;
         let _ = conn
-            .set(format!("user:{id}"), id)
+            .set(format!("user:{id}"), payload)
             .await
             .map_err(|e| format!("{e}"))?;
         Ok(true)
     }
-    async fn remove(&self, id: u64) -> Result<bool, String> {
+
+    async fn remove(&self, UserId(id): UserId) -> Result<bool, String> {
         let mut conn = self.connection.clone();
         let _ = conn
             .del(format!("user:{id}"))
@@ -45,8 +56,4 @@ impl UserRepository for RedisUserRepository {
             .map_err(|e| format!("{e}"))?;
         Ok(true)
     }
-}
-
-pub struct User {
-    pub id: u64,
 }
