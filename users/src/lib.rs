@@ -12,6 +12,7 @@ pub trait UserRepository {
     async fn remove(&self, id: UserId) -> Result<bool, String>;
 }
 
+#[derive(Clone)]
 pub struct RedisUserRepository {
     connection: redis::aio::MultiplexedConnection,
 }
