@@ -54,21 +54,18 @@ async fn main() {
     teloxide::repl(bot, move |bot: Bot, msg: Message| {
         let start = SystemTime::now();
 
-        // Yuck, is there a way to avoid rebuilding the entire dependency tree every time?
         let super_user_id = AmbrogioUserId(super_user_id.0);
-        let elapsed = SystemTime::now().duration_since(start).map(|d| d.as_micros()).unwrap_or(0u128);
-        tracing::info!("Dependency initialisation took {elapsed}µs");
-
         async move {
+            let repo = get_users_repo().await.unwrap();
             let telegram = get_telegram(&bot).await;
             let handlers = get_handlers(&bot).await.unwrap();
-            let repo = get_users_repo().await.unwrap();
+            
             let message = match extract_message(&msg, super_user_id) {
                 None => return Ok(()),
                 Some(msg) => msg,
             };
 
-            let message = match authenticate_user(message, repo.clone()).await {
+            let message = match authenticate_user(message, repo).await {
                 Err(e) => {
                     tracing::info!("Unable to authenticate message: {e}");
                     return Ok(())

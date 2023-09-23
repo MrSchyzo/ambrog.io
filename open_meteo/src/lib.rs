@@ -4,7 +4,6 @@ use derive_builder::Builder;
 use reqwest::Client;
 use serde::Deserialize;
 use std::fmt::Display;
-use std::sync::Arc;
 
 #[derive(Builder)]
 pub struct ForecastRequest {
