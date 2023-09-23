@@ -5,7 +5,9 @@ use ambrogio_users::RedisUserRepository;
 use ambrogio_users::data::User as AmbrogioUser;
 use ambrogio_users::data::UserId as AmbrogioUserId;
 use ambrogio_users::UserRepository;
+use async_once_cell::OnceCell;
 use commands::InboundMessage;
+use telegram::TelegramProxy;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 use open_meteo::ReqwestForecastClient;
@@ -15,13 +17,18 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use teloxide::prelude::*;
 use teloxide::types::User;
-use telegram::TelegramProxy;
 
 use crate::commands::MessageHandler;
 use crate::commands::echo::EchoMessageHandler;
 use crate::commands::forecast::ForecastHandler;
 use crate::commands::users::UserHandler;
 use crate::telegram::TeloxideProxy;
+
+type Handler = dyn MessageHandler + Send + Sync;
+
+static HANDLERS: OnceCell<Vec<Arc<Handler>>> = OnceCell::new();
+static TELEGRAM: OnceCell<TeloxideProxy> = OnceCell::new();
+static USERS: OnceCell<Arc<RedisUserRepository>> = OnceCell::new();
 
 #[tokio::main]
 async fn main() {
@@ -30,41 +37,7 @@ async fn main() {
     tracing::info!("Booting up ambrog.io");
 
     let bot = Bot::from_env();
-
-    let client = match reqwest::ClientBuilder::new().build() {
-        Ok(client) => Arc::new(client),
-        Err(err) => {
-            tracing::error!("HTTP client cannot be created: {err}");
-            return;
-        }
-    };
     
-    let redis = match env::var("REDIS_URL")
-        .or(Ok("redis://127.0.0.1".to_owned()))
-        .and_then(redis::Client::open)
-    {
-        Ok(client) => client,
-        Err(e) => {
-            tracing::error!("Redis client cannot be created: {e}");
-            return;
-        }
-    };
-
-    let redis_connection = match redis.get_multiplexed_tokio_connection().await {
-        Ok(connection) => connection,
-        Err(e) => {
-            tracing::error!("Redis client cannot be created: {e}");
-            return;
-        }
-    };
-    let repo = Arc::new(RedisUserRepository::new(redis_connection.clone()));
-
-    let forecast_client = Arc::new(ReqwestForecastClient::new(
-        client.clone(),
-        "https://geocoding-api.open-meteo.com".to_owned(),
-        "https://api.open-meteo.com".to_owned(),
-    ));
-
     let super_user_id = match super_user_id_from_env("USER_ID") {
         Ok(u) => u,
         Err(str) => {
@@ -72,7 +45,7 @@ async fn main() {
             return;
         }
     };
-    
+
     greet_master(&bot, super_user_id).await.unwrap();
 
     let elapsed = SystemTime::now().duration_since(start).map(|d| d.as_micros()).unwrap_or(0u128);
@@ -81,26 +54,18 @@ async fn main() {
     teloxide::repl(bot, move |bot: Bot, msg: Message| {
         let start = SystemTime::now();
 
-        // Yuck, is there a way to avoid rebuilding the entire dependency tree every time?
         let super_user_id = AmbrogioUserId(super_user_id.0);
-        let telegram_proxy = Arc::new(TeloxideProxy::new(&bot.clone()));
-        let repo = repo.clone();
-        let handlers: Vec<Arc<dyn MessageHandler + Sync + Send>> = vec![
-            Arc::new(ForecastHandler::new(telegram_proxy.clone(), forecast_client.clone())),
-            Arc::new(UserHandler::new(telegram_proxy.clone(), repo.clone())),
-            Arc::new(EchoMessageHandler::new(telegram_proxy.clone())),
-        ];
-
-        let elapsed = SystemTime::now().duration_since(start).map(|d| d.as_micros()).unwrap_or(0u128);
-        tracing::info!("Dependency initialisation took {elapsed}µs");
-
         async move {
+            let repo = get_users_repo().await.unwrap();
+            let telegram = get_telegram(&bot).await;
+            let handlers = get_handlers(&bot).await.unwrap();
+            
             let message = match extract_message(&msg, super_user_id) {
                 None => return Ok(()),
                 Some(msg) => msg,
             };
 
-            let message = match authenticate_user(message, repo.clone()).await {
+            let message = match authenticate_user(message, repo).await {
                 Err(e) => {
                     tracing::info!("Unable to authenticate message: {e}");
                     return Ok(())
@@ -113,7 +78,7 @@ async fn main() {
                 None => tracing::info!("Unrecognised command from {:?} '{}'", user, message.text),
                 Some(handler) => {
                     if let Some(error) = handler.handle(message).await.err() {
-                        let _ = telegram_proxy
+                        let _ = telegram
                             .send_text_to_user(format!("Unable to execute command: {error}"), user)
                             .await;
                     }
@@ -126,6 +91,52 @@ async fn main() {
         }
     })
     .await;
+}
+
+async fn get_telegram(bot: &Bot) -> &(dyn TelegramProxy + Send + Sync) {
+    TELEGRAM.get_or_init(async { TeloxideProxy::new(bot) }).await
+}
+
+
+async fn get_handlers(bot: &Bot) -> Result<&Vec<Arc<Handler>>, String> {
+    HANDLERS.get_or_try_init(setup_handlers(bot)).await
+}
+
+async fn setup_handlers(bot: &Bot) -> Result<Vec<Arc<Handler>>, String> {
+    let client = reqwest::ClientBuilder::new()
+        .build()
+        .map_err(|e| e.to_string())?;
+    
+    let repo = get_users_repo().await?;
+
+    let forecast_client = Arc::new(ReqwestForecastClient::new(
+        &client,
+        "https://geocoding-api.open-meteo.com".to_owned(),
+        "https://api.open-meteo.com".to_owned(),
+    ));
+    let telegram_proxy = Arc::new(TeloxideProxy::new(&bot.clone()));
+
+    Ok(vec![
+        Arc::new(ForecastHandler::new(telegram_proxy.clone(), forecast_client.clone())),
+        Arc::new(UserHandler::new(telegram_proxy.clone(), repo.clone())),
+        Arc::new(EchoMessageHandler::new(telegram_proxy.clone())),
+    ])
+}
+
+async fn get_users_repo() -> Result<Arc<RedisUserRepository>, String> {
+    USERS.get_or_try_init(async {
+        let redis = env::var("REDIS_URL")
+        .or(Ok("redis://127.0.0.1".to_owned()))
+        .and_then(redis::Client::open)
+        .map_err(|e| e.to_string())?;
+
+        let redis_connection = redis
+            .get_multiplexed_tokio_connection()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        Ok(Arc::new(RedisUserRepository::new(redis_connection)))
+    }).await.map(|x| x.clone())
 }
 
 fn setup_global_tracing_subscriber() -> Result<(), String> {

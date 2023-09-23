@@ -4,7 +4,6 @@ use derive_builder::Builder;
 use reqwest::Client;
 use serde::Deserialize;
 use std::fmt::Display;
-use std::sync::Arc;
 
 #[derive(Builder)]
 pub struct ForecastRequest {
@@ -19,17 +18,17 @@ pub trait ForecastClient {
 }
 
 pub struct ReqwestForecastClient {
-    client: Arc<Client>,
+    client: Client,
     geocoding_root_url: String,
     forecast_root_url: String,
 }
 
 impl ReqwestForecastClient {
-    pub fn new(client: Arc<Client>, geocoding_root_url: String, forecast_root_url: String) -> Self {
+    pub fn new(client: &Client, geocoding_root_url: String, forecast_root_url: String) -> Self {
         Self {
             forecast_root_url,
             geocoding_root_url,
-            client,
+            client: client.clone(),
         }
     }
 
