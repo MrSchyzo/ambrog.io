@@ -1,0 +1,22 @@
+name: "Do you really want to touch info.rs?"
+
+on:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: '0'
+      - name: Complain if info.rs is edited
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch -a
+          echo "${{ github.head_ref }}"
+          git rev-parse --abbrev-ref HEAD
+          git diff --exit-code ${{ github.base_ref }} HEAD -- bin/src/info.rs || gh pr review $PR_NUMBER -c -b 'Are you sure you want to touch `bin/src/info.rs`? 🤔 cc @MrSchyzo'
