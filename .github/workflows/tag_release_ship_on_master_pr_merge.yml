@@ -19,7 +19,6 @@ jobs:
     name: Compute, bake, and push git tag
     outputs:
       tag: ${{ steps.tagging.outputs.tag }}
-      floatag: ${{ steps.tagging.outputs.tag }}
     if: ${{ github.event.pull_request.merged == true }}
     steps:
       - name: Checkout Code
@@ -59,8 +58,6 @@ jobs:
           fi
           new_tag="$major.$minor.$patch"
           floating_tag="v$major"
-          echo "tag=$new_tag" | tee $GITHUB_OUTPUT
-          echo "floatag=$floating_tag" | tee $GITHUB_OUTPUT
           sed -i -E 's/pub const VERSION: &str = "[^"]*";/pub const VERSION: \&str = "'$new_tag'";/g' bin/src/info.rs
           git commit -a --amend --no-edit
           git push --force-with-lease
@@ -68,6 +65,7 @@ jobs:
           git tag -f $floating_tag
           git push origin $new_tag
           git push -f origin $floating_tag
+          echo "tag=$new_tag" | tee $GITHUB_OUTPUT
   
   publish-release:
     runs-on: ubuntu-22.04

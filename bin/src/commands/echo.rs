@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-
 use crate::telegram::TelegramProxy;
 
 use super::{InboundMessage, MessageHandler};
