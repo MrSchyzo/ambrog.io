@@ -16,7 +16,7 @@ on:
 jobs:
   github-tag:
     runs-on: ubuntu-22.04
-    name: Compute git tag
+    name: Compute, bake, and push git tag
     outputs:
       tag: ${{ steps.tagging.outputs.tag }}
       floatag: ${{ steps.tagging.outputs.tag }}
@@ -61,40 +61,19 @@ jobs:
           floating_tag="v$major"
           echo "tag=$new_tag" | tee $GITHUB_OUTPUT
           echo "floatag=$floating_tag" | tee $GITHUB_OUTPUT
-
-  push-tag:
-    runs-on: ubuntu-22.04
-    name: Bake and push new tag
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    needs: 
-      - github-tag
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
-        with:
-          ref: 'master'
-          fetch-depth: '0'
-      - name: Bake tag into code
-        run: |
-          git config --global user.email "actions@github.com"
-          git config --global user.name "Github actions"
-          sed -i -E 's/pub const VERSION: &str = "[^"]+";/pub const VERSION: \&str = "'${{ needs.github-tag.outputs.tag }}'";/g' bin/src/info.rs
+          sed -i -E 's/pub const VERSION: &str = "[^"]*";/pub const VERSION: \&str = "'$new_tag'";/g' bin/src/info.rs
           git commit -a --amend --no-edit
           git push --force-with-lease
-      - name: Push new tags into repo
-        run: |
-          git tag ${{ needs.github-tag.outputs.tag }}
-          git tag -f ${{ needs.github-tag.outputs.floatag }}
-          git push origin ${{ needs.github-tag.outputs.tag }}
-          git push -f origin ${{ needs.github-tag.outputs.floatag }}
+          git tag $new_tag
+          git tag -f $floating_tag
+          git push origin $new_tag
+          git push -f origin $floating_tag
   
   publish-release:
     runs-on: ubuntu-22.04
     name: Release tag ${{ needs.github-tag.outputs.tag }}
     needs:
       - github-tag
-      - push-tag
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
@@ -117,7 +96,6 @@ jobs:
     name: Ship container for tag ${{ needs.github-tag.outputs.tag }}
     needs:
       - github-tag
-      - push-tag
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
@@ -165,6 +143,8 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: .
+          build-args: |
+            "app_version=${{ needs.github-tag.outputs.tag }}"
           push: true
           tags: "mrschyzo/ambrogio:latest,mrschyzo/ambrogio:${{ needs.github-tag.outputs.tag }}"
       - name: Open me to see the docker image version
