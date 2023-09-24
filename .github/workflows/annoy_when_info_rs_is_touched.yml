@@ -18,5 +18,10 @@ jobs:
         run: |
           git fetch -a
           echo "${{ github.head_ref }}"
+          echo "${{ github.base_ref }}"
+          cat bin/src/info.rs
+          echo ""
           git rev-parse --abbrev-ref HEAD
-          git diff --exit-code ${{ github.base_ref }} HEAD -- bin/src/info.rs || gh pr review $PR_NUMBER -c -b 'Are you sure you want to touch `bin/src/info.rs`? 🤔 cc @MrSchyzo'
+          if !(git diff --exit-code ${{ github.base_ref }} HEAD -- bin/src/info.rs) ; then 
+            gh pr review $PR_NUMBER -c -b 'Are you sure you want to touch `bin/src/info.rs`? 🤔 cc @MrSchyzo'
+          fi
