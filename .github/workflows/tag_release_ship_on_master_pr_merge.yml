@@ -16,13 +16,16 @@ on:
 jobs:
   github-tag:
     runs-on: ubuntu-22.04
-    name: Create git tag
+    name: Compute git tag
     outputs:
       tag: ${{ steps.tagging.outputs.tag }}
+      floatag: ${{ steps.tagging.outputs.tag }}
     if: ${{ github.event.pull_request.merged == true }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
+        with:
+          ref: 'master'
       - name: Install JQ
         run: sudo apt install -y jq
       - name: Fetch tags
@@ -30,7 +33,7 @@ jobs:
           git config --global user.email "actions@github.com"
           git config --global user.name "Github actions"
           git fetch --tags --unshallow --prune
-      - name: Create Tag
+      - name: Compute Tag
         id: tagging
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -56,17 +59,40 @@ jobs:
           fi
           new_tag="$major.$minor.$patch"
           floating_tag="v$major"
-          git tag $new_tag
-          git tag -f $floating_tag
-          git push origin $new_tag
-          git push -f origin $floating_tag
           echo "tag=$new_tag" | tee $GITHUB_OUTPUT
+          echo "floatag=$floating_tag" | tee $GITHUB_OUTPUT
 
+  push-tag:
+    runs-on: ubuntu-22.04
+    name: Bake and push new tag
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    needs: 
+      - github-tag
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          ref: 'master'
+          fetch-depth: '0'
+      - name: Bake tag into code
+        run: |
+          sed -i -E 's/pub const VERSION: &str = "[^"]+";/pub const VERSION: \&str = "'${{ needs.github-tag.outputs.tag }}'";/g' bin/src/info.rs
+          git commit -a --amend --no-edit
+          git push --force-with-lease
+      - name: Push new tags into repo
+        run: |
+          git tag ${{ needs.github-tag.outputs.tag }}
+          git tag -f ${{ needs.github-tag.outputs.floatag }}
+          git push origin ${{ needs.github-tag.outputs.tag }}
+          git push -f origin ${{ needs.github-tag.outputs.floatag }}
+  
   publish-release:
     runs-on: ubuntu-22.04
     name: Release tag ${{ needs.github-tag.outputs.tag }}
     needs:
       - github-tag
+      - push-tag
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
@@ -89,6 +115,7 @@ jobs:
     name: Ship container for tag ${{ needs.github-tag.outputs.tag }}
     needs:
       - github-tag
+      - push-tag
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3

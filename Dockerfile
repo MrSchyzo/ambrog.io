@@ -6,5 +6,7 @@ WORKDIR /workdir
 
 COPY target/release/ambrogio_bin /workdir/ambrogio
 RUN chmod +x /workdir/ambrogio
+ARG app_version=unknown
+ENV APP_VERSION=${app_version}
 
 ENTRYPOINT /workdir/ambrogio
