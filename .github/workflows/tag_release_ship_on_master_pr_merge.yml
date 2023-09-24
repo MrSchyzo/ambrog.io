@@ -24,6 +24,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
+        with:
+          ref: 'master'
       - name: Install JQ
         run: sudo apt install -y jq
       - name: Fetch tags
@@ -63,14 +65,19 @@ jobs:
   push-tag:
     runs-on: ubuntu-22.04
     name: Bake and push new tag
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     needs: 
       - github-tag
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
+        with:
+          ref: 'master'
+          fetch-depth: '0'
       - name: Bake tag into code
         run: |
-          sed 's/pub const VERSION: &str = "[^"]+";/pub const VERSION: &str = "'${{ needs.github-tag.outputs.tag }}'";' bin/src/info.rs
+          sed -i -E 's/pub const VERSION: &str = "[^"]+";/pub const VERSION: \&str = "'${{ needs.github-tag.outputs.tag }}'";/g' bin/src/info.rs
           git commit -a --amend --no-edit
           git push --force-with-lease
       - name: Push new tags into repo
