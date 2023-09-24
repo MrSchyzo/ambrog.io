@@ -1,5 +1,6 @@
 mod commands;
 mod telegram;
+mod info;
 
 use ambrogio_users::RedisUserRepository;
 use ambrogio_users::data::User as AmbrogioUser;
@@ -23,6 +24,7 @@ use crate::commands::echo::EchoMessageHandler;
 use crate::commands::forecast::ForecastHandler;
 use crate::commands::users::UserHandler;
 use crate::telegram::TeloxideProxy;
+use crate::info::VERSION;
 
 type Handler = dyn MessageHandler + Send + Sync;
 
@@ -34,7 +36,7 @@ static USERS: OnceCell<Arc<RedisUserRepository>> = OnceCell::new();
 async fn main() {
     let start = SystemTime::now();
     setup_global_tracing_subscriber().unwrap();
-    tracing::info!("Booting up ambrog.io");
+    tracing::info!("Booting up ambrog.io version {VERSION}");
 
     let bot = Bot::from_env();
     
@@ -49,7 +51,7 @@ async fn main() {
     greet_master(&bot, super_user_id).await.unwrap();
 
     let elapsed = SystemTime::now().duration_since(start).map(|d| d.as_micros()).unwrap_or(0u128);
-    tracing::info!("Ambrogio initialisation took {elapsed}µs");
+    tracing::info!("Ambrog.io initialisation took {elapsed}µs");
     
     teloxide::repl(bot, move |bot: Bot, msg: Message| {
         let start = SystemTime::now();
@@ -190,7 +192,7 @@ async fn greet_master(bot: &Bot, super_user_id: UserId) -> Result<(), String> {
         .unwrap_or("Master".to_owned());
     
     bot
-        .send_message(super_user_id, format!("Ambrog.io greets you, {master_name}!"))
+        .send_message(super_user_id, format!("Ambrog.io v{VERSION} greets you, {master_name}!"))
         .await
         .map(|_| ())
         .map_err(|e| e.to_string())
