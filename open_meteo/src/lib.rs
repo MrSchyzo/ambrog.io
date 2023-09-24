@@ -85,14 +85,14 @@ impl ForecastClient for ReqwestForecastClient {
             .build()
             .map_err(|err| format!("{err}"))?;
 
-        self.client
+        let forecast = self.client
             .execute(request)
             .await
             .map_err(|err| format!("{err}"))?
             .json::<Forecast>()
             .await
-            .map_err(|err| format!("{err}"))?
-            .try_into()
+            .map_err(|err| format!("{err}"))?;
+        (forecast, geo).try_into()
     }
 }
 
@@ -107,6 +107,27 @@ struct Hit {
     pub latitude: f64,
     pub longitude: f64,
     pub timezone: String,
+    pub country: String,
+    pub admin1: Option<String>,
+    pub admin2: Option<String>,
+    pub admin3: Option<String>,
+    pub admin4: Option<String>,
+}
+
+impl Hit {
+    pub fn where_is_placed(&self) -> String {
+        vec![
+            Some(&self.country), 
+            self.admin1.as_ref(), 
+            self.admin2.as_ref(), 
+            self.admin3.as_ref(), 
+            self.admin4.as_ref()
+        ].into_iter()
+        .flat_map(|x| x.into_iter())
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ")
+    }
 }
 
 impl TryFrom<Hit> for Geolocalisation {
@@ -114,6 +135,7 @@ impl TryFrom<Hit> for Geolocalisation {
 
     fn try_from(value: Hit) -> Result<Self, Self::Error> {
         Ok(Geolocalisation {
+            description: value.where_is_placed(),
             name: value.name,
             latitude: value.latitude,
             longitude: value.longitude,
@@ -127,6 +149,7 @@ struct Geolocalisation {
     pub latitude: f64,
     pub longitude: f64,
     pub timezone: chrono_tz::Tz,
+    pub description: String,
 }
 
 #[derive(Deserialize)]
@@ -155,10 +178,10 @@ struct Hourly {
     pub winddirection_10m: Vec<f64>,
 }
 
-impl TryFrom<Forecast> for Meteo {
+impl TryFrom<(Forecast, Geolocalisation)> for Meteo {
     type Error = String;
 
-    fn try_from(value: Forecast) -> Result<Self, Self::Error> {
+    fn try_from((value, geo): (Forecast, Geolocalisation)) -> Result<Self, Self::Error> {
         let utc = &chrono::Utc;
         let timezone = &value.timezone;
         let tz: chrono_tz::Tz = value
@@ -203,16 +226,21 @@ impl TryFrom<Forecast> for Meteo {
         }
 
         Ok(Meteo {
+            city_name: geo.name,
+            city_description: geo.description,
             time_series: result,
         })
     }
 }
 
 pub struct Meteo {
+    pub city_name: String,
+    pub city_description: String,
     pub time_series: Vec<Weather>,
 }
 impl Display for Meteo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("{} ({})\n", self.city_name, self.city_description))?;
         for ele in &self.time_series {
             f.write_str(&format!("{ele}\n"))?;
         }
