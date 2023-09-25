@@ -25,17 +25,19 @@ jobs:
         uses: actions/checkout@v3
         with:
           ref: 'master'
+          token: ${{ secrets.GH_CI_BOT_TOKEN }}
+          persist-credentials: false
       - name: Install JQ
         run: sudo apt install -y jq
       - name: Fetch tags
         run: |
-          git config --global user.email "actions@github.com"
-          git config --global user.name "Github actions"
+          git config --global user.email "mrschyzo-bot@do-not-bother.com"
+          git config --global user.name "Mr.Schyzo Bot"
           git fetch --tags --unshallow --prune
       - name: Compute Tag
         id: tagging
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_CI_BOT_TOKEN }}
           PR_NUMBER: ${{ github.event.number }}
         run: |
           set -exov pipefail
