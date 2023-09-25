@@ -30,7 +30,7 @@ jobs:
         run: sudo apt install -y jq
       - name: Fetch tags
         run: |
-          git config --global user.email "mrschyzo-bot@do-not-bother.com"
+          git config --global user.email "${{ secrets.GH_CI_BOT_EMAIL }}"
           git config --global user.name "Mr.Schyzo Bot"
           git fetch --tags --unshallow --prune
       - name: Compute Tag
