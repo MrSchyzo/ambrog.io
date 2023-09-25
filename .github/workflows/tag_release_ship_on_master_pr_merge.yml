@@ -63,6 +63,7 @@ jobs:
           sed -i -E 's/pub const VERSION: &str = "[^"]*";/pub const VERSION: \&str = "'$new_tag'";/g' bin/src/info.rs
           git --no-pager config --get-regex 'user.*'
           git remote get-url origin
+          git remote set-url origin https://"$GITHUB_TOKEN"@github.com/mrschyzo/ambrog.io.git
           git commit -a --amend --no-edit
           git push --force-with-lease
           git tag $new_tag
