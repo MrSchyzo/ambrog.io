@@ -26,21 +26,22 @@ jobs:
         with:
           ref: 'master'
           token: ${{ secrets.GH_CI_BOT_TOKEN }}
-          persist-credentials: false
       - name: Install JQ
         run: sudo apt install -y jq
       - name: Fetch tags
         run: |
-          git config --global user.email "mrschyzo-bot@do-not-bother.com"
+          git config --global user.email "${{ secrets.GH_CI_BOT_EMAIL }}"
           git config --global user.name "Mr.Schyzo Bot"
           git fetch --tags --unshallow --prune
       - name: Compute Tag
         id: tagging
         env:
           GITHUB_TOKEN: ${{ secrets.GH_CI_BOT_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_CI_BOT_TOKEN }}
           PR_NUMBER: ${{ github.event.number }}
         run: |
           set -exov pipefail
+          echo $GITHUB_TOKEN | gh auth login --with-token
           echo "Pull Request $PR_NUMBER has been merged."
           highest_tag=`git tag --sort=v:refname | grep '^[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*$' | tail -n 1` || highest_tag="0.0.0"
           tag_bits=(${highest_tag//./ })
