@@ -268,6 +268,7 @@ impl Display for Weather {
         let prob = &self.precipitation_probability;
         let wind = &self.windspeed_10m;
         let wind_dir = &self.winddirection_10m;
+        
         f.write_str(&format!(
             "{time} -> 🌡️{temp} - 🌧️{prec}({prob}) - 💨{wind}({wind_dir})"
         ))
