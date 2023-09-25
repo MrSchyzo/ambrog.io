@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v3
         with:
           ref: 'master'
-          ssh-key: ${{ secrets.GH_CI_BOT_KEY }}
+          token: ${{ secrets.GH_CI_BOT_TOKEN }}
       - name: Install JQ
         run: sudo apt install -y jq
       - name: Fetch tags

@@ -18,6 +18,7 @@ impl EchoMessageHandler {
 
 #[async_trait]
 impl MessageHandler for EchoMessageHandler {
+
     fn can_accept(&self, _: &InboundMessage) -> bool {
         true
     }
@@ -27,4 +28,5 @@ impl MessageHandler for EchoMessageHandler {
         let message = format!("{text} to you, {name}!");
         self.telegram.send_text_to_user(message, id).await
     }
+
 }
