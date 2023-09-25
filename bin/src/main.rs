@@ -35,6 +35,7 @@ static USERS: OnceCell<Arc<RedisUserRepository>> = OnceCell::new();
 #[tokio::main]
 async fn main() {
     let start = SystemTime::now();
+
     setup_global_tracing_subscriber().unwrap();
     tracing::info!("Booting up ambrog.io version {VERSION}");
 
