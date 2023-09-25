@@ -101,7 +101,6 @@ async fn get_telegram(bot: &Bot) -> &(dyn TelegramProxy + Send + Sync) {
     TELEGRAM.get_or_init(async { TeloxideProxy::new(bot) }).await
 }
 
-
 async fn get_handlers(bot: &Bot) -> Result<&Vec<Arc<Handler>>, String> {
     HANDLERS.get_or_try_init(setup_handlers(bot)).await
 }
