@@ -75,6 +75,7 @@ async fn main() {
                 },
                 Ok(msg) => msg,
             };
+
             let user = message.user.id();
 
             match handlers.iter().find(|h| h.can_accept(&message)) {
