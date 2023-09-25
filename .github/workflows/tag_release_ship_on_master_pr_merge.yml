@@ -31,7 +31,7 @@ jobs:
       - name: Fetch tags
         run: |
           git config --global user.email "${{ secrets.GH_CI_BOT_EMAIL }}"
-          git config --global user.name "Mr.Schyzo Bot"
+          git config --global user.name "CI Bot"
           git fetch --tags --unshallow --prune
       - name: Compute Tag
         id: tagging
@@ -61,6 +61,8 @@ jobs:
           new_tag="$major.$minor.$patch"
           floating_tag="v$major"
           sed -i -E 's/pub const VERSION: &str = "[^"]*";/pub const VERSION: \&str = "'$new_tag'";/g' bin/src/info.rs
+          git --no-pager config --get-regex 'user.*'
+          git remote get-url origin
           git commit -a --amend --no-edit
           git push --force-with-lease
           git tag $new_tag
