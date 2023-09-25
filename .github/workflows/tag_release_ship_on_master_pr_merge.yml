@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v3
         with:
           ref: 'master'
-          token: ${{ secrets.GH_CI_BOT_TOKEN }}
+          ssh-key: ${{ secrets.GH_CI_BOT_KEY }}
       - name: Install JQ
         run: sudo apt install -y jq
       - name: Fetch tags
@@ -61,9 +61,6 @@ jobs:
           new_tag="$major.$minor.$patch"
           floating_tag="v$major"
           sed -i -E 's/pub const VERSION: &str = "[^"]*";/pub const VERSION: \&str = "'$new_tag'";/g' bin/src/info.rs
-          git --no-pager config --get-regex 'user.*'
-          git remote get-url origin
-          git remote set-url origin https://"$GITHUB_TOKEN"@github.com/mrschyzo/ambrog.io.git
           git commit -a --amend --no-edit
           git push --force-with-lease
           git tag $new_tag
