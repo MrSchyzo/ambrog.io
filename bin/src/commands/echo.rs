@@ -25,7 +25,7 @@ impl MessageHandler for EchoMessageHandler {
 
     async fn handle(&self, InboundMessage { user, text }: InboundMessage) -> Result<(), String> {
         let (id, name) = (user.id(), user.name());
-        let message = format!("{text} to you, {name}!");
+        let message = format!("{text} a Lei, {name}!");
         self.telegram.send_text_to_user(message, id).await
     }
 

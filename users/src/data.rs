@@ -37,7 +37,7 @@ impl User {
     pub fn name(&self) -> String {
         match self {
             User::SimpleUser { id: UserId(id) } => format!("User {id}"),
-            User::SuperUser { .. } => format!("Master"),
+            User::SuperUser { .. } => format!("Signore"),
             User::NamedUser { name, .. } => name.clone(),
         }
     }

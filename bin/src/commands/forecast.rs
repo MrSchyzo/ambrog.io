@@ -55,7 +55,7 @@ impl MessageHandler for ForecastHandler {
                     )
                 })
                 .unwrap_or("today".to_owned());
-        let message = format!("Forecast {time} {forecast}\n");
+        let message = format!("Il meteo di {time}\n____________\n{forecast}");
         self.telegram
             .send_text_to_user(message, user.id())
             .await
