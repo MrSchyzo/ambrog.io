@@ -8,6 +8,7 @@ use ambrogio_users::data::UserId as AmbrogioUserId;
 use ambrogio_users::UserRepository;
 use async_once_cell::OnceCell;
 use commands::InboundMessage;
+use commands::ferrero::FerreroHandler;
 use telegram::TelegramProxy;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
@@ -109,7 +110,7 @@ async fn setup_handlers(bot: &Bot) -> Result<Vec<Arc<Handler>>, String> {
     let client = reqwest::ClientBuilder::new()
         .build()
         .map_err(|e| e.to_string())?;
-    
+    let rocher_url = "https://67kqts2llyhkzax72fivullwhuo7ifgux6qlfavaherscx4xv3ca.arweave.net/99UJy0teDqyC_9FRWi12PR30FNS_oLKCoDkjIV-XrsQ".to_owned();
     let repo = get_users_repo().await?;
 
     let forecast_client = Arc::new(ReqwestForecastClient::new(
@@ -122,6 +123,7 @@ async fn setup_handlers(bot: &Bot) -> Result<Vec<Arc<Handler>>, String> {
     Ok(vec![
         Arc::new(ForecastHandler::new(telegram_proxy.clone(), forecast_client.clone())),
         Arc::new(UserHandler::new(telegram_proxy.clone(), repo.clone())),
+        Arc::new(FerreroHandler::new(telegram_proxy.clone(), rocher_url)),
         Arc::new(EchoMessageHandler::new(telegram_proxy.clone())),
     ])
 }
@@ -190,10 +192,10 @@ async fn greet_master(bot: &Bot, super_user_id: UserId) -> Result<(), String> {
         .await
         .ok()
         .and_then(|u| u.username().map(|x| x.to_owned()))
-        .unwrap_or("Master".to_owned());
+        .unwrap_or("Padrone".to_owned());
     
     bot
-        .send_message(super_user_id, format!("Ambrog.io v{VERSION} greets you, {master_name}!"))
+        .send_message(super_user_id, format!("Ambrog.io v{VERSION} al Suo servizio, {master_name}!"))
         .await
         .map(|_| ())
         .map_err(|e| e.to_string())

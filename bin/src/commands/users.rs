@@ -44,8 +44,8 @@ impl UserHandler {
             self.repo.remove(target)
         }
         .await
-        .map(|_| format!("Success in executing '{text}'"))
-        .unwrap_or_else(|e| format!("Failure in executing '{text}': {e}!"))
+        .map(|_| format!("'{text}' ✅"))
+        .unwrap_or_else(|e| format!("❌ '{text}': {e}!"))
     }
 }
 
