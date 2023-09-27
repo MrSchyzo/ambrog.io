@@ -9,6 +9,7 @@ use std::sync::Arc;
 use teloxide::types::UserId;
 
 #[derive(Deserialize, Debug)]
+// See https://docs.docker.com/docker-hub/webhooks/#example-webhook-payload
 struct DockerPush {
     pub push_data: DockerPushDetails,
 }
@@ -24,8 +25,8 @@ async fn react_to_dockerhub_message(
 ) -> (axum::http::StatusCode, Json<()>) {
     tracing::info!("New ambrog.io version has been released: {:?}", tag);
 
-    if tag.eq_ignore_ascii_case("latest") {
-        return (axum::http::StatusCode::CREATED, Json(()))
+    if tag.eq_ignore_ascii_case("latest") || tag.is_empty() {
+        return (axum::http::StatusCode::NO_CONTENT, Json(()))
     }
 
     let _ = bot.send_message(super_user_id, format!("Signore, adesso può aggiornarmi alla versione {tag}")).await;
