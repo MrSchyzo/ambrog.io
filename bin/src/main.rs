@@ -1,6 +1,7 @@
 mod commands;
 mod telegram;
 mod info;
+mod update_listener;
 
 use ambrogio_users::RedisUserRepository;
 use ambrogio_users::data::User as AmbrogioUser;
@@ -49,6 +50,13 @@ async fn main() {
             return;
         }
     };
+
+    tokio::spawn((|| {
+        let bot = bot.clone();
+        async move {
+            let _ = update_listener::run_embedded_web_listener(bot, super_user_id).await;
+        }
+    })());
 
     greet_master(&bot, super_user_id).await.unwrap();
 
