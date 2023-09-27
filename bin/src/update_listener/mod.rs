@@ -49,10 +49,13 @@ pub async fn run_embedded_web_listener(bot: Bot, super_user_id: UserId) -> Resul
         .listen()
         .await
         .map_err(|e| e.to_string())?;
+
     tracing::info!("Ingress URL: {:?}", listener.url());
+
     axum::Server::builder(listener)
         .serve(app.into_make_service())
         .await
         .map_err(|e| e.to_string())?;
+
     Ok(())
 }

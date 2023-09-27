@@ -61,7 +61,7 @@ jobs:
           new_tag="$major.$minor.$patch"
           floating_tag="v$major"
           sed -i -E 's/pub const VERSION: &str = "[^"]*";/pub const VERSION: \&str = "'$new_tag'";/g' bin/src/info.rs
-          sed -i -E 's/version = "[^"]*";/version = "'$new_tag'";/g' bin/Cargo.toml
+          sed -i -E 's/version = "[^"]*"/version = "'$new_tag'"/g' bin/Cargo.toml
           git commit -a --amend --no-edit
           git push --force-with-lease
           git tag $new_tag
