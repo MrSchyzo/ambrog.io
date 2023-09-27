@@ -26,3 +26,5 @@ tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", features = ["std", "fmt", "json"] }
 async-once-cell = "0.5.3"
 url = "2.4.0"
+ngrok = { version = "0.13.1", features = ["axum"] }
+axum = "0.6.20"
