@@ -2,6 +2,7 @@ pub mod echo;
 pub mod forecast;
 pub mod users;
 pub mod ferrero;
+pub mod shutdown;
 
 use ambrogio_users::data::User;
 use async_trait::async_trait;

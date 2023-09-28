@@ -10,6 +10,7 @@ use ambrogio_users::UserRepository;
 use async_once_cell::OnceCell;
 use commands::InboundMessage;
 use commands::ferrero::FerreroHandler;
+use commands::shutdown::ShutdownHandler;
 use telegram::TelegramProxy;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
@@ -132,6 +133,7 @@ async fn setup_handlers(bot: &Bot) -> Result<Vec<Arc<Handler>>, String> {
         Arc::new(ForecastHandler::new(telegram_proxy.clone(), forecast_client.clone())),
         Arc::new(UserHandler::new(telegram_proxy.clone(), repo.clone())),
         Arc::new(FerreroHandler::new(telegram_proxy.clone(), rocher_url)),
+        Arc::new(ShutdownHandler::new(telegram_proxy.clone())),
         Arc::new(EchoMessageHandler::new(telegram_proxy.clone())),
     ])
 }
