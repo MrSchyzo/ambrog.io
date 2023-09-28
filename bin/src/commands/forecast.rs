@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use open_meteo::{ForecastRequestBuilder, ForecastClient};
+use open_meteo::{ForecastClient, ForecastRequestBuilder};
 use regex::Regex;
 
 use crate::telegram::TelegramProxy;
@@ -17,13 +17,14 @@ pub struct ForecastHandler {
 
 impl ForecastHandler {
     pub fn new<Proxy, Client>(telegram: Arc<Proxy>, forecast: Arc<Client>) -> Self
-        where 
+    where
         Proxy: TelegramProxy + Send + Sync + 'static,
-        Client: ForecastClient + Send + Sync + 'static {
-        Self { 
+        Client: ForecastClient + Send + Sync + 'static,
+    {
+        Self {
             telegram,
             forecast,
-            regex: Regex::new(r#"(?i)^meteo\s+\w+"#).unwrap()
+            regex: Regex::new(r"(?i)^meteo\s+\w+").unwrap(),
         }
     }
 }
@@ -35,7 +36,11 @@ impl MessageHandler for ForecastHandler {
     }
 
     async fn handle(&self, InboundMessage { user, text }: InboundMessage) -> Result<(), String> {
-        let city = text.splitn(2, " ").into_iter().nth(1).unwrap_or("Pistoia").trim();
+        let city = text
+            .split_once(' ')
+            .map(|x| x.1)
+            .unwrap_or("Pistoia")
+            .trim();
         let req = ForecastRequestBuilder::default()
             .past_days(0)
             .future_days(2)
@@ -44,17 +49,17 @@ impl MessageHandler for ForecastHandler {
             .map_err(|e| e.to_string())?;
         let forecast = self.forecast.weather_forecast(&req).await?;
         let time = forecast
-                .time_series
-                .first()
-                .map(|t| {
-                    format!(
-                        "{}",
-                        t.time
-                            .with_timezone(&chrono_tz::Europe::Rome)
-                            .format("%d/%m/%Y")
-                    )
-                })
-                .unwrap_or("today".to_owned());
+            .time_series
+            .first()
+            .map(|t| {
+                format!(
+                    "{}",
+                    t.time
+                        .with_timezone(&chrono_tz::Europe::Rome)
+                        .format("%d/%m/%Y")
+                )
+            })
+            .unwrap_or("today".to_owned());
         let message = format!("Il meteo di {time}\n____________\n{forecast}");
         self.telegram
             .send_text_to_user(message, user.id())

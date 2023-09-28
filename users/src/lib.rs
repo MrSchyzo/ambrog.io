@@ -1,9 +1,8 @@
 pub mod data;
 
 use async_trait::async_trait;
+use data::{User, UserId};
 use redis::AsyncCommands;
-use data::{UserId,User};
-
 
 #[async_trait]
 pub trait UserRepository {
@@ -32,8 +31,7 @@ impl UserRepository for RedisUserRepository {
             .await
             .map_err(|e| format!("{e}"))?;
 
-        user
-            .map(|u| serde_json::from_str::<User>(&u))
+        user.map(|u| serde_json::from_str::<User>(&u))
             .transpose()
             .map_err(|e| e.to_string())
     }
