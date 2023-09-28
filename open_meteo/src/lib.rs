@@ -268,6 +268,7 @@ impl Display for Weather {
             .time
             .with_timezone(&chrono_tz::Europe::Rome)
             .format("%H:%M");
+
         let temp = &self.temperature_2m;
         let prec = &self.precipitation;
         let prob = &self.precipitation_probability;
