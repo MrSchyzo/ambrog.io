@@ -1,12 +1,12 @@
-use serde::Deserialize;
 use axum::extract::State;
 use axum::Json;
 use axum::{routing::post, Router};
 use ngrok::prelude::*;
-use teloxide::Bot;
-use teloxide::requests::Requester;
+use serde::Deserialize;
 use std::sync::Arc;
+use teloxide::requests::Requester;
 use teloxide::types::UserId;
+use teloxide::Bot;
 
 #[derive(Deserialize, Debug)]
 // See https://docs.docker.com/docker-hub/webhooks/#example-webhook-payload
@@ -21,16 +21,24 @@ struct DockerPushDetails {
 
 async fn react_to_dockerhub_message(
     State((super_user_id, bot)): State<(UserId, Arc<Bot>)>,
-    Json(DockerPush {push_data: DockerPushDetails { tag, .. }, ..}): Json<DockerPush>
+    Json(DockerPush {
+        push_data: DockerPushDetails { tag, .. },
+        ..
+    }): Json<DockerPush>,
 ) -> (axum::http::StatusCode, Json<()>) {
     tracing::info!("New ambrog.io version has been released: {:?}", tag);
 
     if tag.eq_ignore_ascii_case("latest") || tag.is_empty() {
-        return (axum::http::StatusCode::NO_CONTENT, Json(()))
+        return (axum::http::StatusCode::NO_CONTENT, Json(()));
     }
 
-    let _ = bot.send_message(super_user_id, format!("Signore, adesso può aggiornarmi alla versione {tag}")).await;
-    
+    let _ = bot
+        .send_message(
+            super_user_id,
+            format!("Signore, adesso può aggiornarmi alla versione {tag}"),
+        )
+        .await;
+
     (axum::http::StatusCode::CREATED, Json(()))
 }
 

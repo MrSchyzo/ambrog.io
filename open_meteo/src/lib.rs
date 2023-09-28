@@ -85,7 +85,8 @@ impl ForecastClient for ReqwestForecastClient {
             .build()
             .map_err(|err| format!("{err}"))?;
 
-        let forecast = self.client
+        let forecast = self
+            .client
             .execute(request)
             .await
             .map_err(|err| format!("{err}"))?
@@ -117,12 +118,13 @@ struct Hit {
 impl Hit {
     pub fn where_is_placed(&self) -> String {
         vec![
-            Some(&self.country), 
-            self.admin1.as_ref(), 
-            self.admin2.as_ref(), 
-            self.admin3.as_ref(), 
-            self.admin4.as_ref()
-        ].into_iter()
+            Some(&self.country),
+            self.admin1.as_ref(),
+            self.admin2.as_ref(),
+            self.admin3.as_ref(),
+            self.admin4.as_ref(),
+        ]
+        .into_iter()
         .flat_map(|x| x.into_iter())
         .cloned()
         .collect::<Vec<_>>()
@@ -139,7 +141,10 @@ impl TryFrom<Hit> for Geolocalisation {
             name: value.name,
             latitude: value.latitude,
             longitude: value.longitude,
-            timezone: value.timezone.parse().map_err(|err| format!("{err}"))?,
+            timezone: value
+                .timezone
+                .parse()
+                .map_err(|err: Self::Error| err.to_string())?,
         })
     }
 }
@@ -268,7 +273,7 @@ impl Display for Weather {
         let prob = &self.precipitation_probability;
         let wind = &self.windspeed_10m;
         let wind_dir = &self.winddirection_10m;
-        
+
         f.write_str(&format!(
             "{time} -> 🌡️{temp} - 🌧️{prec}({prob}) - 💨{wind}({wind_dir})"
         ))

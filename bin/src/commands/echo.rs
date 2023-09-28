@@ -1,24 +1,25 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use crate::telegram::TelegramProxy;
+use async_trait::async_trait;
 
 use super::{InboundMessage, MessageHandler};
 
 pub struct EchoMessageHandler {
-    telegram: Arc<dyn TelegramProxy + Send + Sync + 'static>
+    telegram: Arc<dyn TelegramProxy + Send + Sync + 'static>,
 }
 
 impl EchoMessageHandler {
     pub fn new<Proxy>(telegram: Arc<Proxy>) -> Self
-        where Proxy: TelegramProxy + Send + Sync + 'static {
+    where
+        Proxy: TelegramProxy + Send + Sync + 'static,
+    {
         Self { telegram }
     }
 }
 
 #[async_trait]
 impl MessageHandler for EchoMessageHandler {
-
     fn can_accept(&self, _: &InboundMessage) -> bool {
         true
     }
@@ -28,5 +29,4 @@ impl MessageHandler for EchoMessageHandler {
         let message = format!("{text} a Lei, {name}!");
         self.telegram.send_text_to_user(message, id).await
     }
-
 }
