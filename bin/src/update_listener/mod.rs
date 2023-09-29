@@ -2,6 +2,8 @@ use axum::extract::State;
 use axum::Json;
 use axum::{routing::post, Router};
 use ngrok::prelude::*;
+use redis::AsyncCommands;
+use redis::aio::MultiplexedConnection;
 use serde::Deserialize;
 use std::sync::Arc;
 use teloxide::requests::Requester;
@@ -20,7 +22,7 @@ struct DockerPushDetails {
 }
 
 async fn react_to_dockerhub_message(
-    State((super_user_id, bot)): State<(UserId, Arc<Bot>)>,
+    State((super_user_id, bot, redis)): State<(UserId, Arc<Bot>, MultiplexedConnection)>,
     Json(DockerPush {
         push_data: DockerPushDetails { tag, .. },
         ..
@@ -35,17 +37,20 @@ async fn react_to_dockerhub_message(
     let _ = bot
         .send_message(
             super_user_id,
-            format!("Signore, adesso può aggiornarmi alla versione {tag}"),
+            format!("Una nuova versione ({tag}) è disponibile, Signore!"),
         )
         .await;
+
+    tracing::info!("Publish {tag} to Redis through `updates` channel!");
+    let _: Result<(), String> = redis.clone().publish("updates", tag).await.map_err(|e| e.to_string());
 
     (axum::http::StatusCode::CREATED, Json(()))
 }
 
-pub async fn run_embedded_web_listener(bot: Bot, super_user_id: UserId) -> Result<(), String> {
+pub async fn run_embedded_web_listener(bot: Bot, super_user_id: UserId, redis: MultiplexedConnection) -> Result<(), String> {
     let app = Router::new()
         .route("/ambrogio_updates", post(react_to_dockerhub_message))
-        .with_state((super_user_id, Arc::new(bot)));
+        .with_state((super_user_id, Arc::new(bot), redis));
 
     let listener = ngrok::Session::builder()
         .authtoken_from_env()

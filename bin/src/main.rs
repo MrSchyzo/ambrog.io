@@ -12,6 +12,7 @@ use commands::ferrero::FerreroHandler;
 use commands::shutdown::ShutdownHandler;
 use commands::InboundMessage;
 use open_meteo::ReqwestForecastClient;
+use redis::aio::MultiplexedConnection;
 use std::env;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -34,6 +35,7 @@ type Handler = dyn MessageHandler + Send + Sync;
 static HANDLERS: OnceCell<Vec<Arc<Handler>>> = OnceCell::new();
 static TELEGRAM: OnceCell<TeloxideProxy> = OnceCell::new();
 static USERS: OnceCell<Arc<RedisUserRepository>> = OnceCell::new();
+static REDIS: OnceCell<Arc<MultiplexedConnection>> = OnceCell::new();
 
 #[tokio::main]
 async fn main() {
@@ -54,8 +56,11 @@ async fn main() {
 
     tokio::spawn({
         let bot = bot.clone();
+        let redis = get_redis_connection().await.unwrap().as_ref().clone();
         async move {
-            let _ = update_listener::run_embedded_web_listener(bot, super_user_id).await;
+            if let Err(e) = update_listener::run_embedded_web_listener(bot, super_user_id, redis).await {
+                tracing::error!("Cannot listen to image updates {e}")
+            }
         }
     });
 
@@ -138,10 +143,7 @@ async fn setup_handlers(bot: &Bot) -> Result<Vec<Arc<Handler>>, String> {
     let telegram_proxy = Arc::new(TeloxideProxy::new(&bot.clone()));
 
     Ok(vec![
-        Arc::new(ForecastHandler::new(
-            telegram_proxy.clone(),
-            forecast_client.clone(),
-        )),
+        Arc::new(ForecastHandler::new(telegram_proxy.clone(),forecast_client.clone())),
         Arc::new(UserHandler::new(telegram_proxy.clone(), repo.clone())),
         Arc::new(FerreroHandler::new(telegram_proxy.clone(), rocher_url)),
         Arc::new(ShutdownHandler::new(telegram_proxy.clone())),
@@ -149,23 +151,32 @@ async fn setup_handlers(bot: &Bot) -> Result<Vec<Arc<Handler>>, String> {
     ])
 }
 
+async fn get_redis_connection() -> Result<Arc<MultiplexedConnection>, String> {
+    REDIS.get_or_try_init(async {
+        let redis = env::var("REDIS_URL")
+            .or(Ok("redis://127.0.0.1".to_owned()))
+            .and_then(redis::Client::open)
+            .map_err(|e| e.to_string())?;
+
+        redis
+            .get_multiplexed_tokio_connection()
+            .await
+            .map(Arc::new)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .cloned()
+}
+
 async fn get_users_repo() -> Result<Arc<RedisUserRepository>, String> {
     USERS
         .get_or_try_init(async {
-            let redis = env::var("REDIS_URL")
-                .or(Ok("redis://127.0.0.1".to_owned()))
-                .and_then(redis::Client::open)
-                .map_err(|e| e.to_string())?;
+            let connection = get_redis_connection().await?.as_ref().clone();
 
-            let redis_connection = redis
-                .get_multiplexed_tokio_connection()
-                .await
-                .map_err(|e| e.to_string())?;
-
-            Ok(Arc::new(RedisUserRepository::new(redis_connection)))
+            Ok(Arc::new(RedisUserRepository::new(connection)))
         })
         .await
-        .map(|x| x.clone())
+        .cloned()
 }
 
 fn setup_global_tracing_subscriber() -> Result<(), String> {
