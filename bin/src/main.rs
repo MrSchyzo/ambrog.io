@@ -58,8 +58,10 @@ async fn main() {
         let bot = bot.clone();
         let redis = get_redis_connection().await.unwrap().as_ref().clone();
         async move {
-            if let Err(e) = update_listener::run_embedded_web_listener(bot, super_user_id, redis).await {
-                tracing::error!("Cannot listen to image updates {e}")
+            if let Err(e) =
+                update_listener::run_embedded_web_listener(bot, super_user_id, redis).await
+            {
+                tracing::error!("Cannot listen to docker image updates: {e}")
             }
         }
     });
@@ -143,7 +145,10 @@ async fn setup_handlers(bot: &Bot) -> Result<Vec<Arc<Handler>>, String> {
     let telegram_proxy = Arc::new(TeloxideProxy::new(&bot.clone()));
 
     Ok(vec![
-        Arc::new(ForecastHandler::new(telegram_proxy.clone(),forecast_client.clone())),
+        Arc::new(ForecastHandler::new(
+            telegram_proxy.clone(),
+            forecast_client.clone(),
+        )),
         Arc::new(UserHandler::new(telegram_proxy.clone(), repo.clone())),
         Arc::new(FerreroHandler::new(telegram_proxy.clone(), rocher_url)),
         Arc::new(ShutdownHandler::new(telegram_proxy.clone())),
@@ -152,20 +157,21 @@ async fn setup_handlers(bot: &Bot) -> Result<Vec<Arc<Handler>>, String> {
 }
 
 async fn get_redis_connection() -> Result<Arc<MultiplexedConnection>, String> {
-    REDIS.get_or_try_init(async {
-        let redis = env::var("REDIS_URL")
-            .or(Ok("redis://127.0.0.1".to_owned()))
-            .and_then(redis::Client::open)
-            .map_err(|e| e.to_string())?;
+    REDIS
+        .get_or_try_init(async {
+            let redis = env::var("REDIS_URL")
+                .or(Ok("redis://127.0.0.1".to_owned()))
+                .and_then(redis::Client::open)
+                .map_err(|e| e.to_string())?;
 
-        redis
-            .get_multiplexed_tokio_connection()
-            .await
-            .map(Arc::new)
-            .map_err(|e| e.to_string())
-    })
-    .await
-    .cloned()
+            redis
+                .get_multiplexed_tokio_connection()
+                .await
+                .map(Arc::new)
+                .map_err(|e| e.to_string())
+        })
+        .await
+        .cloned()
 }
 
 async fn get_users_repo() -> Result<Arc<RedisUserRepository>, String> {

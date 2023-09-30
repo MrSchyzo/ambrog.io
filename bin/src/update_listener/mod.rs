@@ -2,8 +2,8 @@ use axum::extract::State;
 use axum::Json;
 use axum::{routing::post, Router};
 use ngrok::prelude::*;
-use redis::AsyncCommands;
 use redis::aio::MultiplexedConnection;
+use redis::AsyncCommands;
 use serde::Deserialize;
 use std::sync::Arc;
 use teloxide::requests::Requester;
@@ -42,12 +42,20 @@ async fn react_to_dockerhub_message(
         .await;
 
     tracing::info!("Publish {tag} to Redis through `updates` channel!");
-    let _: Result<(), String> = redis.clone().publish("updates", tag).await.map_err(|e| e.to_string());
+    let _: Result<(), String> = redis
+        .clone()
+        .publish("updates", tag)
+        .await
+        .map_err(|e| e.to_string());
 
     (axum::http::StatusCode::CREATED, Json(()))
 }
 
-pub async fn run_embedded_web_listener(bot: Bot, super_user_id: UserId, redis: MultiplexedConnection) -> Result<(), String> {
+pub async fn run_embedded_web_listener(
+    bot: Bot,
+    super_user_id: UserId,
+    redis: MultiplexedConnection,
+) -> Result<(), String> {
     let app = Router::new()
         .route("/ambrogio_updates", post(react_to_dockerhub_message))
         .with_state((super_user_id, Arc::new(bot), redis));
