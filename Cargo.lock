@@ -28,7 +28,7 @@ dependencies = [
 
 [[package]]
 name = "ambrogio_bin"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "ambrogio_core",
  "ambrogio_users",
@@ -38,6 +38,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "derive_more",
+ "itertools 0.11.0",
  "log",
  "ngrok",
  "open_meteo",
@@ -101,7 +102,7 @@ version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a941c39708478e8eea39243b5983f1c42d2717b3620ee91f4a52115fd02ac43f"
 dependencies = [
- "itertools",
+ "itertools 0.9.0",
  "proc-macro-error",
  "proc-macro2",
  "quote",
@@ -888,6 +889,15 @@ name = "itertools"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "284f18f85651fe11e8a991b2adb42cb078325c996ed026d994719efcfca1d54b"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1c173a5686ce8bfa551b3563d0c2170bf24ca44da99c7ca4bfdab5418c3fe57"
 dependencies = [
  "either",
 ]

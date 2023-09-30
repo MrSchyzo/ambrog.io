@@ -283,6 +283,16 @@ impl Display for Weather {
 
 pub struct HumanReadableMeasure(f64, String);
 
+impl HumanReadableMeasure {
+    pub fn number(&self) -> f64 {
+        self.0
+    }
+
+    pub fn unit(&self) -> &str {
+        &self.1
+    }
+}
+
 impl Display for HumanReadableMeasure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let num = self.0;

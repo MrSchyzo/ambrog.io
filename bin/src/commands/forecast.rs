@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
-use open_meteo::{ForecastClient, ForecastRequestBuilder};
-use regex::Regex;
-
 use crate::telegram::TelegramProxy;
+use async_trait::async_trait;
+use itertools::Itertools;
+use open_meteo::{ForecastClient, ForecastRequestBuilder, Meteo, Weather};
+use regex::Regex;
 
 use super::{InboundMessage, MessageHandler};
 
@@ -27,6 +27,61 @@ impl ForecastHandler {
             regex: Regex::new(r"(?i)^meteo\s+\w+").unwrap(),
         }
     }
+
+    fn render_forecast(meteo: Meteo, city: &str) -> Vec<String> {
+        let rome = &chrono_tz::Europe::Rome;
+        let now = chrono::Utc::now();
+        let header = vec![format!(
+            "Meteo per \"{}\"\nLocalità: {} ({})",
+            city, meteo.city_name, meteo.city_description
+        )];
+        let days = meteo
+            .time_series
+            .into_iter()
+            .filter(|line| line.time.ge(&now))
+            .group_by(|t| t.time.with_timezone(rome).format("%d/%m/%Y").to_string())
+            .into_iter()
+            .map(|(date, series)| {
+                let lines = series.map(Self::render_line).join("\n");
+                format!("Previsioni per {date}\n-------------------\n{lines}")
+            })
+            .collect::<Vec<_>>();
+
+        header.into_iter().chain(days).collect_vec()
+    }
+
+    fn render_line(line: Weather) -> String {
+        let rome = &chrono_tz::Europe::Rome;
+
+        let rain = if line.precipitation.number() * line.precipitation_probability.number() > 0f64 {
+            format!(
+                "🌧️ {} (prob. {})",
+                line.precipitation, line.precipitation_probability
+            )
+        } else {
+            String::new()
+        };
+
+        let wind = if line.windspeed_10m.number() >= 6f64 {
+            format!(
+                "💨 {} (dir. {})",
+                line.windspeed_10m, line.winddirection_10m
+            )
+        } else {
+            String::new()
+        };
+
+        format!(
+            "{} -> {} {} {}",
+            line.time.with_timezone(rome).time().format("%H:%M"),
+            line.temperature_2m,
+            rain,
+            wind
+        )
+        .split_whitespace()
+        .filter(|s| !s.is_empty())
+        .join(" ")
+    }
 }
 
 #[async_trait]
@@ -48,22 +103,13 @@ impl MessageHandler for ForecastHandler {
             .build()
             .map_err(|e| e.to_string())?;
         let forecast = self.forecast.weather_forecast(&req).await?;
-        let time = forecast
-            .time_series
-            .first()
-            .map(|t| {
-                format!(
-                    "{}",
-                    t.time
-                        .with_timezone(&chrono_tz::Europe::Rome)
-                        .format("%d/%m/%Y")
-                )
-            })
-            .unwrap_or("today".to_owned());
-        let message = format!("Il meteo di {time}\n____________\n{forecast}");
-        self.telegram
-            .send_text_to_user(message, user.id())
-            .await
-            .map(|_| ())
+        for message in Self::render_forecast(forecast, city) {
+            let _ = self
+                .telegram
+                .send_text_to_user(message, user.id())
+                .await
+                .map(|_| ());
+        }
+        Ok(())
     }
 }
