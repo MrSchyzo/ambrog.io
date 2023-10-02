@@ -91,11 +91,7 @@ impl MessageHandler for ForecastHandler {
     }
 
     async fn handle(&self, InboundMessage { user, text }: InboundMessage) -> Result<(), String> {
-        let city = text
-            .split_once(' ')
-            .map(|x| x.1)
-            .unwrap_or("Pistoia")
-            .trim();
+        let city = text.split_once(' ').map(|x| x.1).unwrap_or("Roma").trim();
         let req = ForecastRequestBuilder::default()
             .past_days(0)
             .future_days(2)

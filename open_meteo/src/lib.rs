@@ -186,6 +186,7 @@ struct Hourly {
 impl TryFrom<(Forecast, Geolocalisation)> for Meteo {
     type Error = String;
 
+    #[allow(deprecated)]
     fn try_from((value, geo): (Forecast, Geolocalisation)) -> Result<Self, Self::Error> {
         let utc = &chrono::Utc;
         let timezone = &value.timezone;
