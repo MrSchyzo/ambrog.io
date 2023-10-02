@@ -28,15 +28,15 @@ struct UpdateProcessor {
     pub id: UserId,
     pub bot: Arc<Bot>,
     pub redis: MultiplexedConnection,
-    pub config: Arc<UpdatesConfig>
+    pub config: Arc<UpdatesConfig>,
 }
 
 async fn react_to_dockerhub_message(
-    State(UpdateProcessor{
-        id, 
-        bot, 
-        redis, 
-        config
+    State(UpdateProcessor {
+        id,
+        bot,
+        redis,
+        config,
     }): State<UpdateProcessor>,
     Json(DockerPush {
         push_data: DockerPushDetails { tag, .. },
@@ -76,7 +76,7 @@ pub async fn run_embedded_web_listener(
         id: super_user_id,
         bot: Arc::new(bot),
         redis,
-        config: Arc::new(config.clone())
+        config: Arc::new(config.clone()),
     };
 
     let app = Router::new()

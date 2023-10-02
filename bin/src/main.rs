@@ -1,8 +1,8 @@
 mod commands;
+mod config;
 mod info;
 mod telegram;
 mod update_listener;
-mod config;
 
 use ambrogio_users::data::User as AmbrogioUser;
 use ambrogio_users::data::UserId as AmbrogioUserId;
@@ -54,7 +54,8 @@ async fn main() {
         let redis = get_redis_connection().await.unwrap().as_ref().clone();
         async move {
             if let Err(e) =
-                update_listener::run_embedded_web_listener(bot, super_user_id, redis, &conf.updates).await
+                update_listener::run_embedded_web_listener(bot, super_user_id, redis, &conf.updates)
+                    .await
             {
                 tracing::error!("Cannot listen to docker image updates: {e}")
             }
@@ -90,7 +91,7 @@ async fn main() {
                 }
                 Ok(msg) => msg,
             };
-            
+
             let command = message.text.clone();
             let user = message.user.id();
 
@@ -104,7 +105,10 @@ async fn main() {
                             user = user.0 
                         }, "Unable to execute message");
                         let _ = telegram
-                            .send_text_to_user("Non sono riuscito ad eseguire il tuo comando".to_owned(), user)
+                            .send_text_to_user(
+                                "Non sono riuscito ad eseguire il tuo comando".to_owned(),
+                                user,
+                            )
                             .await;
                     }
                 }
@@ -120,8 +124,6 @@ async fn main() {
     })
     .await;
 }
-
-
 
 async fn get_telegram(bot: &Bot) -> &(dyn TelegramProxy + Send + Sync) {
     TELEGRAM
@@ -149,9 +151,15 @@ async fn setup_handlers(bot: &Bot) -> Result<Vec<Arc<Handler>>, String> {
     let telegram_proxy = Arc::new(TeloxideProxy::new(&bot.clone()));
 
     Ok(vec![
-        Arc::new(ForecastHandler::new(telegram_proxy.clone(), forecast_client.clone())),
+        Arc::new(ForecastHandler::new(
+            telegram_proxy.clone(),
+            forecast_client.clone(),
+        )),
         Arc::new(UserHandler::new(telegram_proxy.clone(), repo.clone())),
-        Arc::new(FerreroHandler::new(telegram_proxy.clone(), config.ferrero.gif_url.clone())),
+        Arc::new(FerreroHandler::new(
+            telegram_proxy.clone(),
+            config.ferrero.gif_url.clone(),
+        )),
         Arc::new(ShutdownHandler::new(telegram_proxy.clone())),
         Arc::new(EchoMessageHandler::new(telegram_proxy.clone())),
     ])
@@ -162,8 +170,7 @@ async fn get_redis_connection() -> Result<Arc<MultiplexedConnection>, String> {
         .get_or_try_init(async {
             let config = get_config().await;
 
-            let redis = redis::Client::open(config.redis.url.clone())
-                .map_err(|e| e.to_string())?;
+            let redis = redis::Client::open(config.redis.url.clone()).map_err(|e| e.to_string())?;
 
             redis
                 .get_multiplexed_tokio_connection()

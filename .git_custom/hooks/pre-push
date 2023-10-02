@@ -1,0 +1,11 @@
+#!/bin/sh
+
+>&2 printf "Checking local repo state... "
+if [ -n "$(git status -s)" ]; then
+    >&2 echo "dirty ❌"
+    >&2 echo "ABORTING"
+    exit 1
+fi
+>&2 echo "✅"
+
+cargo check && cargo fmt --check && cargo clippy && cargo test && cargo build
