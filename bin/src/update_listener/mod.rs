@@ -10,6 +10,8 @@ use teloxide::requests::Requester;
 use teloxide::types::UserId;
 use teloxide::Bot;
 
+use crate::config::UpdatesConfig;
+
 #[derive(Deserialize, Debug)]
 // See https://docs.docker.com/docker-hub/webhooks/#example-webhook-payload
 struct DockerPush {
@@ -21,8 +23,21 @@ struct DockerPushDetails {
     pub tag: String,
 }
 
+#[derive(Clone)]
+struct UpdateProcessor {
+    pub id: UserId,
+    pub bot: Arc<Bot>,
+    pub redis: MultiplexedConnection,
+    pub config: Arc<UpdatesConfig>
+}
+
 async fn react_to_dockerhub_message(
-    State((super_user_id, bot, redis)): State<(UserId, Arc<Bot>, MultiplexedConnection)>,
+    State(UpdateProcessor{
+        id, 
+        bot, 
+        redis, 
+        config
+    }): State<UpdateProcessor>,
     Json(DockerPush {
         push_data: DockerPushDetails { tag, .. },
         ..
@@ -36,7 +51,7 @@ async fn react_to_dockerhub_message(
 
     let _ = bot
         .send_message(
-            super_user_id,
+            id,
             format!("Una nuova versione ({tag}) è disponibile, Signore!"),
         )
         .await;
@@ -44,7 +59,7 @@ async fn react_to_dockerhub_message(
     tracing::info!("Publish {tag} to Redis through `updates` channel!");
     let _: Result<(), String> = redis
         .clone()
-        .publish("updates", tag)
+        .publish(config.redis_topic.as_str(), tag)
         .await
         .map_err(|e| e.to_string());
 
@@ -55,10 +70,18 @@ pub async fn run_embedded_web_listener(
     bot: Bot,
     super_user_id: UserId,
     redis: MultiplexedConnection,
+    config: &UpdatesConfig,
 ) -> Result<(), String> {
+    let state = UpdateProcessor {
+        id: super_user_id,
+        bot: Arc::new(bot),
+        redis,
+        config: Arc::new(config.clone())
+    };
+
     let app = Router::new()
         .route("/ambrogio_updates", post(react_to_dockerhub_message))
-        .with_state((super_user_id, Arc::new(bot), redis));
+        .with_state(state);
 
     let listener = ngrok::Session::builder()
         .authtoken_from_env()
@@ -66,7 +89,7 @@ pub async fn run_embedded_web_listener(
         .await
         .map_err(|e| e.to_string())?
         .http_endpoint()
-        .domain("badly-refined-roughy.ngrok-free.app")
+        .domain(config.webhook_domain.clone())
         .listen()
         .await
         .map_err(|e| e.to_string())?;

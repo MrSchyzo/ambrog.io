@@ -2,6 +2,7 @@ mod commands;
 mod info;
 mod telegram;
 mod update_listener;
+mod config;
 
 use ambrogio_users::data::User as AmbrogioUser;
 use ambrogio_users::data::UserId as AmbrogioUserId;
@@ -13,8 +14,6 @@ use commands::shutdown::ShutdownHandler;
 use commands::InboundMessage;
 use open_meteo::ReqwestForecastClient;
 use redis::aio::MultiplexedConnection;
-use std::env;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::SystemTime;
 use telegram::TelegramProxy;
@@ -27,6 +26,7 @@ use crate::commands::echo::EchoMessageHandler;
 use crate::commands::forecast::ForecastHandler;
 use crate::commands::users::UserHandler;
 use crate::commands::MessageHandler;
+use crate::config::get_config;
 use crate::info::VERSION;
 use crate::telegram::TeloxideProxy;
 
@@ -45,21 +45,16 @@ async fn main() {
     tracing::info!("Booting up ambrog.io version {VERSION}");
 
     let bot = Bot::from_env();
+    let conf = get_config().await;
 
-    let super_user_id = match super_user_id_from_env("USER_ID") {
-        Ok(u) => u,
-        Err(str) => {
-            tracing::error!("Unable to get super user id: {str}");
-            return;
-        }
-    };
+    let super_user_id = UserId(conf.user_id);
 
     tokio::spawn({
         let bot = bot.clone();
         let redis = get_redis_connection().await.unwrap().as_ref().clone();
         async move {
             if let Err(e) =
-                update_listener::run_embedded_web_listener(bot, super_user_id, redis).await
+                update_listener::run_embedded_web_listener(bot, super_user_id, redis, &conf.updates).await
             {
                 tracing::error!("Cannot listen to docker image updates: {e}")
             }
@@ -95,15 +90,21 @@ async fn main() {
                 }
                 Ok(msg) => msg,
             };
-
+            
+            let command = message.text.clone();
             let user = message.user.id();
 
             match handlers.iter().find(|h| h.can_accept(&message)) {
                 None => tracing::info!("Unrecognised command from {:?} '{}'", user, message.text),
                 Some(handler) => {
                     if let Some(error) = handler.handle(message).await.err() {
+                        tracing::error!({ 
+                            command = command, 
+                            error = error.to_string(), 
+                            user = user.0 
+                        }, "Unable to execute message");
                         let _ = telegram
-                            .send_text_to_user(format!("Unable to execute command: {error}"), user)
+                            .send_text_to_user("Non sono riuscito ad eseguire il tuo comando".to_owned(), user)
                             .await;
                     }
                 }
@@ -120,6 +121,8 @@ async fn main() {
     .await;
 }
 
+
+
 async fn get_telegram(bot: &Bot) -> &(dyn TelegramProxy + Send + Sync) {
     TELEGRAM
         .get_or_init(async { TeloxideProxy::new(bot) })
@@ -131,26 +134,24 @@ async fn get_handlers(bot: &Bot) -> Result<&Vec<Arc<Handler>>, String> {
 }
 
 async fn setup_handlers(bot: &Bot) -> Result<Vec<Arc<Handler>>, String> {
+    let config = get_config().await;
+
     let client = reqwest::ClientBuilder::new()
         .build()
         .map_err(|e| e.to_string())?;
-    let rocher_url = "https://67kqts2llyhkzax72fivullwhuo7ifgux6qlfavaherscx4xv3ca.arweave.net/99UJy0teDqyC_9FRWi12PR30FNS_oLKCoDkjIV-XrsQ".to_owned();
     let repo = get_users_repo().await?;
 
     let forecast_client = Arc::new(ReqwestForecastClient::new(
         &client,
-        "https://geocoding-api.open-meteo.com".to_owned(),
-        "https://api.open-meteo.com".to_owned(),
+        config.forecast.geocoding_root.clone(),
+        config.forecast.forecast_root.clone(),
     ));
     let telegram_proxy = Arc::new(TeloxideProxy::new(&bot.clone()));
 
     Ok(vec![
-        Arc::new(ForecastHandler::new(
-            telegram_proxy.clone(),
-            forecast_client.clone(),
-        )),
+        Arc::new(ForecastHandler::new(telegram_proxy.clone(), forecast_client.clone())),
         Arc::new(UserHandler::new(telegram_proxy.clone(), repo.clone())),
-        Arc::new(FerreroHandler::new(telegram_proxy.clone(), rocher_url)),
+        Arc::new(FerreroHandler::new(telegram_proxy.clone(), config.ferrero.gif_url.clone())),
         Arc::new(ShutdownHandler::new(telegram_proxy.clone())),
         Arc::new(EchoMessageHandler::new(telegram_proxy.clone())),
     ])
@@ -159,9 +160,9 @@ async fn setup_handlers(bot: &Bot) -> Result<Vec<Arc<Handler>>, String> {
 async fn get_redis_connection() -> Result<Arc<MultiplexedConnection>, String> {
     REDIS
         .get_or_try_init(async {
-            let redis = env::var("REDIS_URL")
-                .or(Ok("redis://127.0.0.1".to_owned()))
-                .and_then(redis::Client::open)
+            let config = get_config().await;
+
+            let redis = redis::Client::open(config.redis.url.clone())
                 .map_err(|e| e.to_string())?;
 
             redis
@@ -199,15 +200,6 @@ fn setup_global_tracing_subscriber() -> Result<(), String> {
     tracing::subscriber::set_global_default(subscriber).map_err(|e| e.to_string())
 }
 
-fn super_user_id_from_env(env_var: &str) -> Result<UserId, String> {
-    let string =
-        env::var(env_var).map_err(|_| format!("{env_var} environment variable not found"))?;
-
-    u64::from_str(&string)
-        .map_err(|_| format!("{env_var} environment variable is not u64, got '{string}'"))
-        .map(UserId)
-}
-
 fn extract_message(
     msg: &Message,
     super_user_id: AmbrogioUserId,
@@ -235,7 +227,7 @@ async fn greet_master(bot: &Bot, super_user_id: UserId) -> Result<(), String> {
         .await
         .ok()
         .and_then(|u| u.username().map(|x| x.to_owned()))
-        .unwrap_or("Padrone".to_owned());
+        .unwrap_or("Signore".to_owned());
 
     bot.send_message(
         super_user_id,
@@ -258,7 +250,7 @@ async fn authenticate_user(
 
     repo.get(user_id)
         .await?
-        .ok_or(format!("Unknown user {}", user_id.0))
+        .ok_or(format!("Utente sconosciuto {}", user_id.0))
         .map(|user| InboundMessage {
             user,
             text: message.text,

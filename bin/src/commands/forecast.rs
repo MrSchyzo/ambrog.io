@@ -94,7 +94,7 @@ impl MessageHandler for ForecastHandler {
         let city = text
             .split_once(' ')
             .map(|x| x.1)
-            .unwrap_or("Pistoia")
+            .unwrap_or("Roma")
             .trim();
         let req = ForecastRequestBuilder::default()
             .past_days(0)
