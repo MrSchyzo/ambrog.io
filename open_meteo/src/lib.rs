@@ -202,11 +202,11 @@ struct HourlyUnits {
 #[derive(Deserialize)]
 struct Hourly {
     pub time: Vec<String>,
-    pub temperature_2m: Vec<f64>,
-    pub precipitation: Vec<f64>,
+    pub temperature_2m: Vec<Option<f64>>,
+    pub precipitation: Vec<Option<f64>>,
     pub precipitation_probability: Vec<Option<f64>>,
-    pub windspeed_10m: Vec<f64>,
-    pub winddirection_10m: Vec<f64>,
+    pub windspeed_10m: Vec<Option<f64>>,
+    pub winddirection_10m: Vec<Option<f64>>,
 }
 
 impl TryFrom<(Forecast, Geolocalisation)> for Meteo {
@@ -248,15 +248,24 @@ impl TryFrom<(Forecast, Geolocalisation)> for Meteo {
                 time: date
                     .map_err(|e| format!("Unable to parse date ({}): {e}", &item))?
                     .with_timezone(utc),
-                precipitation: HumanReadableMeasure(precipitation[i], p_unit.to_owned()),
+                precipitation: HumanReadableMeasure(
+                    precipitation[i].unwrap_or(0f64),
+                    p_unit.to_owned(),
+                ),
                 precipitation_probability: HumanReadableMeasure(
                     precipitation_probability[i].unwrap_or(0f64),
                     pp_unit.to_owned(),
                 ),
-                temperature_2m: HumanReadableMeasure(temperature_2m[i], t2m_unit.to_owned()),
-                windspeed_10m: HumanReadableMeasure(windspeed_10m[i], w10m_unit.to_owned()),
+                temperature_2m: HumanReadableMeasure(
+                    temperature_2m[i].unwrap_or(0f64),
+                    t2m_unit.to_owned(),
+                ),
+                windspeed_10m: HumanReadableMeasure(
+                    windspeed_10m[i].unwrap_or(0f64),
+                    w10m_unit.to_owned(),
+                ),
                 winddirection_10m: HumanReadableMeasure(
-                    winddirection_10m[i],
+                    winddirection_10m[i].unwrap_or(0f64),
                     wd10m_unit.to_owned(),
                 ),
             };
