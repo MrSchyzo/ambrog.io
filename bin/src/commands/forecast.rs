@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use crate::telegram::TelegramProxy;
 use async_trait::async_trait;
+use chrono::NaiveDate;
 use itertools::Itertools;
-use open_meteo::{ForecastClient, ForecastRequestBuilder, Meteo, Weather};
+use open_meteo::{ForecastClient, ForecastRequest, Meteo, Weather};
 use regex::Regex;
 
 use super::{InboundMessage, MessageHandler};
@@ -15,7 +16,37 @@ pub struct ForecastHandler {
     regex: Regex,
 }
 
+#[async_trait]
+impl MessageHandler for ForecastHandler {
+    fn can_accept(&self, msg: &InboundMessage) -> bool {
+        self.regex.is_match(&msg.text)
+    }
+
+    async fn handle(&self, InboundMessage { user, text }: InboundMessage) -> Result<(), String> {
+        let (maybe_city, day_in_future) = Self::parse(text);
+        let city = maybe_city.as_deref().unwrap_or("Roma");
+        let req = day_in_future
+            .map(|day| ForecastRequest::city_specific_day(city, day))
+            .unwrap_or_else(|| ForecastRequest::city_only(city))?;
+
+        let forecast = self.forecast.weather_forecast(&req).await?;
+        for message in Self::render_forecast(forecast, city, day_in_future.is_some()) {
+            let _ = self
+                .telegram
+                .send_text_to_user(message, user.id())
+                .await
+                .map(|_| ());
+        }
+        Ok(())
+    }
+}
+
 impl ForecastHandler {
+    const ROME: &chrono_tz::Tz = &chrono_tz::Europe::Rome;
+    const SUPPORTED_FORMATS: [&'static str; 6] = [
+        "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d", "%Y-%m-%d", "%m/%d/%Y", "%m-%d-%Y",
+    ];
+
     pub fn new<Proxy, Client>(telegram: Arc<Proxy>, forecast: Arc<Client>) -> Self
     where
         Proxy: TelegramProxy + Send + Sync + 'static,
@@ -28,8 +59,7 @@ impl ForecastHandler {
         }
     }
 
-    fn render_forecast(meteo: Meteo, city: &str) -> Vec<String> {
-        let rome = &chrono_tz::Europe::Rome;
+    fn render_forecast(meteo: Meteo, city: &str, last_only: bool) -> Vec<String> {
         let now = chrono::Utc::now();
         let header = vec![format!(
             "Meteo per \"{}\"\nLocalità: {} ({})",
@@ -39,15 +69,26 @@ impl ForecastHandler {
             .time_series
             .into_iter()
             .filter(|line| line.time.ge(&now))
-            .group_by(|t| t.time.with_timezone(rome).format("%d/%m/%Y").to_string())
+            .group_by(|t| {
+                t.time
+                    .with_timezone(Self::ROME)
+                    .format("%d/%m/%Y")
+                    .to_string()
+            })
             .into_iter()
             .map(|(date, series)| {
                 let lines = series.map(Self::render_line).join("\n");
                 format!("Previsioni per {date}\n-------------------\n{lines}")
             })
-            .collect::<Vec<_>>();
+            .collect_vec();
 
-        header.into_iter().chain(days).collect_vec()
+        let days_to_chain = if last_only {
+            days.last().cloned().into_iter().collect_vec()
+        } else {
+            days
+        };
+
+        header.into_iter().chain(days_to_chain).collect_vec()
     }
 
     fn render_line(line: Weather) -> String {
@@ -55,18 +96,15 @@ impl ForecastHandler {
 
         let rain = if line.precipitation.number() * line.precipitation_probability.number() > 0f64 {
             format!(
-                "🌧️ {} (prob. {})",
-                line.precipitation, line.precipitation_probability
+                "🌧️ {} {}",
+                line.precipitation_probability, line.precipitation
             )
         } else {
             String::new()
         };
 
         let wind = if line.windspeed_10m.number() >= 6f64 {
-            format!(
-                "💨 {} (dir. {})",
-                line.windspeed_10m, line.winddirection_10m
-            )
+            format!("💨 {} {}", line.winddirection_10m, line.windspeed_10m)
         } else {
             String::new()
         };
@@ -82,30 +120,35 @@ impl ForecastHandler {
         .filter(|s| !s.is_empty())
         .join(" ")
     }
-}
 
-#[async_trait]
-impl MessageHandler for ForecastHandler {
-    fn can_accept(&self, msg: &InboundMessage) -> bool {
-        self.regex.is_match(&msg.text)
+    fn parse(command: String) -> (Option<String>, Option<u8>) {
+        let now = chrono::Utc::now().with_timezone(Self::ROME).date_naive();
+
+        let arguments = command.split(' ').skip(1).collect_vec();
+        let mut days_in_future: Option<u8> = None;
+        let mut city: Vec<&str> = vec![];
+
+        for piece in arguments {
+            if let Some(d) = Self::SUPPORTED_FORMATS
+                .iter()
+                .find_map(|format| NaiveDate::parse_from_str(piece, format).ok())
+            {
+                days_in_future = u8::try_from(d.signed_duration_since(now).num_days())
+                    .ok()
+                    .or(days_in_future);
+            } else {
+                city.push(piece)
+            }
+        }
+
+        (Self::build_city(&city), days_in_future)
     }
 
-    async fn handle(&self, InboundMessage { user, text }: InboundMessage) -> Result<(), String> {
-        let city = text.split_once(' ').map(|x| x.1).unwrap_or("Roma").trim();
-        let req = ForecastRequestBuilder::default()
-            .past_days(0)
-            .future_days(2)
-            .place_name(city.to_owned())
-            .build()
-            .map_err(|e| e.to_string())?;
-        let forecast = self.forecast.weather_forecast(&req).await?;
-        for message in Self::render_forecast(forecast, city) {
-            let _ = self
-                .telegram
-                .send_text_to_user(message, user.id())
-                .await
-                .map(|_| ());
+    fn build_city(pieces: &Vec<&str>) -> Option<String> {
+        if pieces.is_empty() {
+            None
+        } else {
+            Some(pieces.join(" "))
         }
-        Ok(())
     }
 }

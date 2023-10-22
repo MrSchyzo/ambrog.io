@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use chrono::{DateTime, TimeZone};
+use chrono::{format::ParseErrorKind, DateTime, TimeZone};
 use derive_builder::Builder;
 use reqwest::Client;
 use serde::Deserialize;
@@ -10,6 +10,32 @@ pub struct ForecastRequest {
     past_days: u8,
     future_days: u8,
     place_name: String,
+}
+
+impl ForecastRequest {
+    pub fn city_only(city: &str) -> Result<Self, String> {
+        ForecastRequestBuilder::default()
+            .past_days(0)
+            .future_days(2)
+            .place_name(city.to_owned())
+            .build()
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn city_specific_day(city: &str, day: u8) -> Result<Self, String> {
+        if day > 15 {
+            return Err(format!(
+                "Date is {day} days in the future, 15 days is the furthest supported!"
+            ));
+        }
+
+        ForecastRequestBuilder::default()
+            .past_days(0)
+            .future_days(day + 1)
+            .place_name(city.to_owned())
+            .build()
+            .map_err(|e| e.to_string())
+    }
 }
 
 #[async_trait]
@@ -178,7 +204,7 @@ struct Hourly {
     pub time: Vec<String>,
     pub temperature_2m: Vec<f64>,
     pub precipitation: Vec<f64>,
-    pub precipitation_probability: Vec<f64>,
+    pub precipitation_probability: Vec<Option<f64>>,
     pub windspeed_10m: Vec<f64>,
     pub winddirection_10m: Vec<f64>,
 }
@@ -211,14 +237,20 @@ impl TryFrom<(Forecast, Geolocalisation)> for Meteo {
         let wd10m_unit = value.hourly_units.winddirection_10m;
         let mut result: Vec<Weather> = vec![];
         for (i, item) in value.hourly.time.iter().enumerate() {
+            let date = match tz.datetime_from_str(&item.to_string(), "%Y-%m-%dT%H:%M") {
+                // (2023-10-29T02:00): input is not enough for unique date and time
+                // This is due to the fact that daylight saving time happens at that moment.
+                // Time is moved back 1h => we have 1h "overlap" between the two different time offsets (+2 and +1)
+                Err(parse) if parse.kind().eq(&ParseErrorKind::NotEnough) => continue,
+                d => d,
+            };
             let point = Weather {
-                time: tz
-                    .datetime_from_str(&item.to_string(), "%Y-%m-%dT%H:%M")
-                    .map_err(|e| format!("Unable to parse date {e}"))?
+                time: date
+                    .map_err(|e| format!("Unable to parse date ({}): {e}", &item))?
                     .with_timezone(utc),
                 precipitation: HumanReadableMeasure(precipitation[i], p_unit.to_owned()),
                 precipitation_probability: HumanReadableMeasure(
-                    precipitation_probability[i],
+                    precipitation_probability[i].unwrap_or(0f64),
                     pp_unit.to_owned(),
                 ),
                 temperature_2m: HumanReadableMeasure(temperature_2m[i], t2m_unit.to_owned()),
