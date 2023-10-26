@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{path::PathBuf, str::FromStr};
 
 use ambrogio_users::data::UserId as AmbrogioUserId;
 use async_trait::async_trait;
@@ -18,6 +18,7 @@ pub trait TelegramProxy {
     ) -> Result<(), String>;
     async fn send_gif_from_url(&self, raw_url: &str, user_id: AmbrogioUserId)
         -> Result<(), String>;
+    async fn send_local_video(&self, path: PathBuf, user_id: AmbrogioUserId) -> Result<(), String>;
 }
 
 #[derive(Clone)]
@@ -57,6 +58,19 @@ impl TelegramProxy for TeloxideProxy {
 
         self.bot
             .send_video(user, file)
+            .await
+            .map_err(|e| e.to_string())
+            .map(|_| ())
+    }
+    async fn send_local_video(
+        &self,
+        path: PathBuf,
+        AmbrogioUserId(user_id): AmbrogioUserId,
+    ) -> Result<(), String> {
+        let user = UserId(user_id);
+
+        self.bot
+            .send_video(user, InputFile::file(path))
             .await
             .map_err(|e| e.to_string())
             .map(|_| ())

@@ -30,3 +30,4 @@ url = "2.4.0"
 ngrok = { version = "0.13.1", features = ["axum"] }
 axum = "0.6.20"
 itertools = "0.11.0"
+rusty_ytdl = "0.6.4"

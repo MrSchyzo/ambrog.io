@@ -11,6 +11,7 @@ use ambrogio_users::UserRepository;
 use async_once_cell::OnceCell;
 use commands::ferrero::FerreroHandler;
 use commands::shutdown::ShutdownHandler;
+use commands::youtube::YoutubeDownloadHandler;
 use commands::InboundMessage;
 use open_meteo::ReqwestForecastClient;
 use redis::aio::MultiplexedConnection;
@@ -160,6 +161,7 @@ async fn setup_handlers(bot: &Bot) -> Result<Vec<Arc<Handler>>, String> {
             telegram_proxy.clone(),
             config.ferrero.gif_url.clone(),
         )),
+        Arc::new(YoutubeDownloadHandler::new(telegram_proxy.clone())),
         Arc::new(ShutdownHandler::new(telegram_proxy.clone())),
         Arc::new(EchoMessageHandler::new(telegram_proxy.clone())),
     ])
