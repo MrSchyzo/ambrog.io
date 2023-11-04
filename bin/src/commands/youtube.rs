@@ -1,10 +1,12 @@
-use std::{env, sync::Arc, time::Duration};
+use std::{collections::HashMap, env, sync::Arc};
 
 use crate::telegram::TelegramProxy;
+use ambrogio_users::data::UserId;
+use async_process::Command;
 use async_trait::async_trait;
 use regex::Regex;
-use rusty_ytdl::{Video, VideoOptions};
 use tokio::fs::remove_file;
+use url::Url;
 
 use super::{InboundMessage, MessageHandler};
 
@@ -20,8 +22,60 @@ impl YoutubeDownloadHandler {
     {
         Self {
             telegram,
-            regex: Regex::new(r"(?i)^scarica(mi)?\s+[^\s]+").unwrap(),
+            regex: Regex::new(r"(?i)^(video|audio)?\s+[^\s]+").unwrap(),
         }
+    }
+
+    async fn download_video(&self, id: UserId, video_id: String) -> Result<(), String> {
+        tokio::spawn({
+            let telegram = self.telegram.clone();
+            async move {
+                let output = format!("{}.mp4", video_id);
+
+                let _ = Command::new("yt-dlp")
+                    .arg("-f")
+                    .arg("bestvideo[vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4]/best")
+                    .arg(&video_id)
+                    .arg("-o")
+                    .arg(&output)
+                    .output()
+                    .await
+                    .unwrap();
+
+                let path = env::current_dir().unwrap().join(&output);
+                let _ = telegram.send_local_video(path.clone(), id).await;
+                let _ = remove_file(path).await;
+            }
+        });
+
+        Ok(())
+    }
+
+    async fn download_audio(&self, id: UserId, video_id: String) -> Result<(), String> {
+        tokio::spawn({
+            let telegram = self.telegram.clone();
+            async move {
+                let output = format!("{}.mp3", video_id);
+                let _ = Command::new("yt-dlp")
+                    .arg("-x")
+                    .arg("--audio-format")
+                    .arg("mp3")
+                    .arg("--audio-quality")
+                    .arg("0")
+                    .arg(&video_id)
+                    .arg("-o")
+                    .arg(&output)
+                    .output()
+                    .await
+                    .unwrap();
+
+                let path = env::current_dir().unwrap().join(&output);
+                let _ = telegram.send_local_audio(path.clone(), id).await;
+                let _ = remove_file(path).await;
+            }
+        });
+
+        Ok(())
     }
 }
 
@@ -31,35 +85,32 @@ impl MessageHandler for YoutubeDownloadHandler {
         self.regex.is_match(text)
     }
 
-    async fn handle(&self, InboundMessage { user, .. }: InboundMessage) -> Result<(), String> {
+    async fn handle(&self, InboundMessage { user, text }: InboundMessage) -> Result<(), String> {
         let id = user.id();
+        let pieces = text
+            .split(' ')
+            .map(|x| x.trim())
+            .filter(|x| !x.is_empty())
+            .collect::<Vec<_>>();
+        let command = pieces[0];
+        let video = pieces[1];
+        let video_id = match Url::parse(video) {
+            Ok(url) => url
+                .query_pairs()
+                .into_iter()
+                .collect::<HashMap<_, _>>()
+                .get("v")
+                .map(|c| c.clone().into_owned())
+                .unwrap_or(video.to_owned()),
+            _ => video.to_owned(),
+        };
         self.telegram
-            .send_text_to_user("Sto scaricando jNQXAC9IVRw".to_string(), id)
+            .send_text_to_user(format!("Sto scaricando {} {}", command, video_id), id)
             .await?;
 
-        tokio::spawn({
-            let telegram = self.telegram.clone();
-            async move {
-                let path = env::current_dir().unwrap().join("jNQXAC9IVRw.webp");
-                let _ = Video::new_with_options(
-                    "jNQXAC9IVRw".to_owned(),
-                    VideoOptions {
-                        quality: rusty_ytdl::VideoQuality::Highest,
-                        ..Default::default()
-                    },
-                )
-                .unwrap()
-                .download(path.clone())
-                .await
-                .unwrap();
-                let _ = telegram.send_local_video(path.clone(), id).await;
-                // TODO: remove this wait
-                tokio::time::sleep(Duration::from_millis(1000u64)).await;
-
-                let _ = remove_file(path).await;
-            }
-        });
-
-        Ok(())
+        match command {
+            "audio" => return self.download_audio(id, video_id).await,
+            _ => return self.download_video(id, video_id).await,
+        };
     }
 }
