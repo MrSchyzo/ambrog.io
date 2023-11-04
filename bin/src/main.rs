@@ -143,6 +143,7 @@ async fn setup_handlers(bot: &Bot) -> Result<Vec<Arc<Handler>>, String> {
         .build()
         .map_err(|e| e.to_string())?;
     let repo = get_users_repo().await?;
+    let redis = get_redis_connection().await?.as_ref().clone();
 
     let forecast_client = Arc::new(ReqwestForecastClient::new(
         &client,
@@ -161,7 +162,11 @@ async fn setup_handlers(bot: &Bot) -> Result<Vec<Arc<Handler>>, String> {
             telegram_proxy.clone(),
             config.ferrero.gif_url.clone(),
         )),
-        Arc::new(YoutubeDownloadHandler::new(telegram_proxy.clone())),
+        Arc::new(YoutubeDownloadHandler::new(
+            telegram_proxy.clone(),
+            redis,
+            &client,
+        )),
         Arc::new(ShutdownHandler::new(telegram_proxy.clone())),
         Arc::new(EchoMessageHandler::new(telegram_proxy.clone())),
     ])
