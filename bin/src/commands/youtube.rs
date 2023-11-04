@@ -56,6 +56,8 @@ impl YoutubeDownloadHandler {
                         tracing::info!("No value for key {key}, downloading into {output}.");
 
                         if !matches!(fs::try_exists(&path).await, Ok(true)) {
+                            tracing::info!("Downloading {video_id} into {path:?}");
+
                             let download = Command::new("yt-dlp")
                                 .arg("-f")
                                 .arg("bestvideo[vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4]/best")
@@ -127,6 +129,7 @@ impl YoutubeDownloadHandler {
                         tracing::info!("No value for key {key}, downloading into {output}.");
 
                         if !matches!(fs::try_exists(&path).await, Ok(true)) {
+                            tracing::info!("Downloading {video_id} into {path:?}");
                             let download = Command::new("yt-dlp")
                                 .arg("-x")
                                 .arg("--audio-format")
@@ -206,6 +209,11 @@ impl MessageHandler for YoutubeDownloadHandler {
                 .collect::<HashMap<_, _>>()
                 .get("v")
                 .map(|c| c.clone().into_owned())
+                .or_else(|| {
+                    url.path_segments()
+                        .and_then(|p| p.last())
+                        .map(|x| x.to_owned())
+                })
                 .unwrap_or(video.to_owned()),
             _ => video.to_owned(),
         };
@@ -214,7 +222,7 @@ impl MessageHandler for YoutubeDownloadHandler {
             .send_text_to_user(format!("Sto scaricando {} {}", command, video_id), id)
             .await?;
 
-        match command {
+        match command.to_lowercase().as_str() {
             "audio" => return self.download_audio(id, video_id).await,
             _ => return self.download_video(id, video_id).await,
         };
@@ -222,6 +230,7 @@ impl MessageHandler for YoutubeDownloadHandler {
 }
 
 async fn upload_file(client: Client, path: PathBuf) -> Result<Url, String> {
+    tracing::info!("Uploading file {:?} to GoFile", path);
     let url = Url::parse("https://api.gofile.io/getServer").map_err(|err| format!("{err}"))?;
     let file_name = path
         .file_name()
@@ -241,16 +250,23 @@ async fn upload_file(client: Client, path: PathBuf) -> Result<Url, String> {
         .data
         .server;
 
+    tracing::info!("Found GoFile server {}", server);
+
     let file = fs::read(path.clone())
         .await
         .map_err(|err| format!("{err}"))?;
     let file_part = reqwest::multipart::Part::bytes(file).file_name(file_name);
     let form = reqwest::multipart::Form::new().part("file", file_part);
     let upload_request = client
-        .post(Url::parse(&format!("https://{server}.gofile.io/uploadFile")).unwrap())
+        .post(
+            Url::parse(&format!("https://{server}.gofile.io/uploadFile"))
+                .map_err(|e| e.to_string())?,
+        )
         .multipart(form)
         .build()
         .map_err(|err| format!("{err}"))?;
+
+    tracing::info!("Starting upload of {:?}: {:?}", path, upload_request);
 
     client
         .execute(upload_request)
