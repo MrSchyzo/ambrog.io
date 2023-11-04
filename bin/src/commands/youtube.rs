@@ -67,16 +67,23 @@ impl YoutubeDownloadHandler {
                                 .output()
                                 .await;
 
-                            if let Err(e) = download {
-                                tracing::error!("Unable to download {video_id}: {e}");
-                                telegram
-                                    .send_text_to_user(
-                                        format!("Unable to download {video_id}: {e}"),
-                                        id,
-                                    )
-                                    .await
-                                    .unwrap();
-                                return;
+                            match download {
+                                Err(e) => {
+                                    tracing::error!("Unable to download {video_id}: {e}");
+                                    telegram
+                                        .send_text_to_user(
+                                            format!("Unable to download {video_id}: {e}"),
+                                            id,
+                                        )
+                                        .await
+                                        .unwrap();
+                                    return;
+                                }
+                                Ok(std::process::Output { stdout, stderr, .. }) => {
+                                    let out = String::from_utf8(stdout);
+                                    let err = String::from_utf8(stderr);
+                                    tracing::info!("Download {video_id}: {out:?}\n{err:?}");
+                                }
                             }
                         }
 
@@ -142,16 +149,23 @@ impl YoutubeDownloadHandler {
                                 .output()
                                 .await;
 
-                            if let Err(e) = download {
-                                tracing::error!("Unable to download {video_id}: {e}");
-                                telegram
-                                    .send_text_to_user(
-                                        format!("Unable to download {video_id}: {e}"),
-                                        id,
-                                    )
-                                    .await
-                                    .unwrap();
-                                return;
+                            match download {
+                                Err(e) => {
+                                    tracing::error!("Unable to download {video_id}: {e}");
+                                    telegram
+                                        .send_text_to_user(
+                                            format!("Unable to download {video_id}: {e}"),
+                                            id,
+                                        )
+                                        .await
+                                        .unwrap();
+                                    return;
+                                }
+                                Ok(std::process::Output { stdout, stderr, .. }) => {
+                                    let out = String::from_utf8(stdout);
+                                    let err = String::from_utf8(stderr);
+                                    tracing::info!("Download {video_id}: {out:?}\n{err:?}");
+                                }
                             }
                         }
 
