@@ -1,0 +1,31 @@
+version: '3.8'
+
+volumes:
+  redis:
+
+services:
+  ambrogio:
+    pull_policy: always
+    restart: unless-stopped
+    depends_on: 
+      - redis
+    container_name: server-ambrogio
+    #image: ambrogio:latest # if you want to build your own version
+    image: mrschyzo/ambrogio:latest # if you want my latest image
+    env_file:
+      - .env.local
+    volumes:
+      - ./storage:/workdir/storage:z
+  redis:
+    image: redis:alpine
+    command: redis-server --appendonly yes
+    ports:
+      - target: 6379
+        published: 6379
+        protocol: tcp
+        mode: host
+    volumes:
+      - redis:/data
+    restart: always
+    environment:
+      - REDIS_REPLICATION_MODE=master
