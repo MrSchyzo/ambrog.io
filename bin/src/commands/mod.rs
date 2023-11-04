@@ -3,6 +3,7 @@ pub mod ferrero;
 pub mod forecast;
 pub mod shutdown;
 pub mod users;
+pub mod youtube;
 
 use ambrogio_users::data::User;
 use async_trait::async_trait;
