@@ -79,10 +79,31 @@ impl YoutubeDownloadHandler {
                                         .unwrap();
                                     return;
                                 }
-                                Ok(std::process::Output { stdout, stderr, .. }) => {
-                                    let out = String::from_utf8(stdout);
-                                    let err = String::from_utf8(stderr);
-                                    tracing::info!("Download {video_id}: {out:?}\n{err:?}");
+                                Ok(std::process::Output {
+                                    stdout,
+                                    stderr,
+                                    status,
+                                }) => {
+                                    if !status.success() {
+                                        let out = String::from_utf8(stdout)
+                                            .ok()
+                                            .unwrap_or("N/A".to_owned());
+                                        let err = String::from_utf8(stderr)
+                                            .ok()
+                                            .unwrap_or("N/A".to_owned());
+                                        tracing::error!(
+                                            "Output of {video_id}: {out}\n===============\n{err}"
+                                        );
+                                        telegram
+                                            .send_text_to_user(
+                                                format!("Download of {video_id} failed:\n\n{err}"),
+                                                id,
+                                            )
+                                            .await
+                                            .unwrap();
+                                        return;
+                                    }
+                                    tracing::info!("Downloaded {video_id} into {path:?}");
                                 }
                             }
                         }
@@ -161,10 +182,31 @@ impl YoutubeDownloadHandler {
                                         .unwrap();
                                     return;
                                 }
-                                Ok(std::process::Output { stdout, stderr, .. }) => {
-                                    let out = String::from_utf8(stdout);
-                                    let err = String::from_utf8(stderr);
-                                    tracing::info!("Download {video_id}: {out:?}\n{err:?}");
+                                Ok(std::process::Output {
+                                    stdout,
+                                    stderr,
+                                    status,
+                                }) => {
+                                    if !status.success() {
+                                        let out = String::from_utf8(stdout)
+                                            .ok()
+                                            .unwrap_or("N/A".to_owned());
+                                        let err = String::from_utf8(stderr)
+                                            .ok()
+                                            .unwrap_or("N/A".to_owned());
+                                        tracing::error!(
+                                            "Output of {video_id}: {out}\n===============\n{err}"
+                                        );
+                                        telegram
+                                            .send_text_to_user(
+                                                format!("Download of {video_id} failed:\n\n{err}"),
+                                                id,
+                                            )
+                                            .await
+                                            .unwrap();
+                                        return;
+                                    }
+                                    tracing::info!("Downloaded {video_id} into {path:?}");
                                 }
                             }
                         }
