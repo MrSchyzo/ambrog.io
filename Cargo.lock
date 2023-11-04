@@ -28,7 +28,7 @@ dependencies = [
 
 [[package]]
 name = "ambrogio_bin"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "ambrogio_core",
  "ambrogio_users",
