@@ -242,6 +242,10 @@ impl TryFrom<(Forecast, Geolocalisation)> for Meteo {
                 // This is due to the fact that daylight saving time happens at that moment.
                 // Time is moved back 1h => we have 1h "overlap" between the two different time offsets (+2 and +1)
                 Err(parse) if parse.kind().eq(&ParseErrorKind::NotEnough) => continue,
+                // (2023-03-31T02:00): input is not possible for date and time
+                // This is due to the fact that daylight saving time happens at that moment.
+                // Time is moved forward 1h => we have 1h void between 2AM and 3AM
+                Err(parse) if parse.kind().eq(&ParseErrorKind::Impossible) => continue,
                 d => d,
             };
             let point = Weather {
