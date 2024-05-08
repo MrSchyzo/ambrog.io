@@ -19,7 +19,7 @@ Apart from commands, the following is supported:
 - uses Redis for in-memory state (we can enable `--appendonly` to have persistence)
 - broadcasts the update version to the configured Redis pub/sub topic
 
-## Requirements
+## Requirements
 See the architecture files ([XML](docs/arch.xml), [SVG](docs/arch.svg), [PNG](docs/arch.png)) to have an idea of all the runtime requirements.
 
 ### Development
@@ -42,17 +42,17 @@ See the architecture files ([XML](docs/arch.xml), [SVG](docs/arch.svg), [PNG](do
 - a directory called `storage` in the workdir (I need to make this configurable)
     - just `mkdir -p storage` from the repo root
 - environment variables as described in [.env file](./.env) (write your own values):
-    - RUST_LOG=INFO
-    - TELOXIDE_TOKEN=1208471293:somestringblablabla
-    - NGROK_AUTHTOKEN=yourNgrokAuthToken
-    - USER_ID=0
-    - REDIS_URL=redis://localhost
-    - BOT_NAME=Ambrog.io
-    - UPDATES_REDIS_TOPIC=updates
-    - UPDATES_WEBHOOK_DOMAIN=your-ngrok-domain-name
-    - FERRERO_GIF_URL=https://67kqts2llyhkzax72fivullwhuo7ifgux6qlfavaherscx4xv3ca.arweave.net/99UJy0teDqyC_9FRWi12PR30FNS_oLKCoDkjIV-XrsQ
-    - FORECAST_MAIN_ROOT=https://api.open-meteo.com
-    - FORECAST_GEO_ROOT=https://geocoding-api.open-meteo.com
+    - `RUST_LOG=INFO`
+    - `TELOXIDE_TOKEN=1208471293:somestringblablabla`
+    - `NGROK_AUTHTOKEN=yourNgrokAuthToken`
+    - `USER_ID=0`
+    - `REDIS_URL=redis://localhost`
+    - `BOT_NAME=Ambrog.io`
+    - `UPDATES_REDIS_TOPIC=updates`
+    - `UPDATES_WEBHOOK_DOMAIN=your-ngrok-domain-name`
+    - `FERRERO_GIF_URL=https://67kqts2llyhkzax72fivullwhuo7ifgux6qlfavaherscx4xv3ca.arweave.net/99UJy0teDqyC_9FRWi12PR30FNS_oLKCoDkjIV-XrsQ`
+    - `FORECAST_MAIN_ROOT=https://api.open-meteo.com`
+    - `FORECAST_GEO_ROOT=https://geocoding-api.open-meteo.com`
 
 ## How to run
 
