@@ -42,7 +42,7 @@ impl MessageHandler for ForecastHandler {
 }
 
 impl ForecastHandler {
-    const ROME: &chrono_tz::Tz = &chrono_tz::Europe::Rome;
+    const ROME: &'static chrono_tz::Tz = &chrono_tz::Europe::Rome;
     const SUPPORTED_FORMATS: [&'static str; 6] = [
         "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d", "%Y-%m-%d", "%m/%d/%Y", "%m-%d-%Y",
     ];
