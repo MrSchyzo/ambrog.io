@@ -10,6 +10,7 @@ use teloxide::{
 use url::Url;
 
 #[async_trait]
+#[allow(dead_code)]
 pub trait TelegramProxy {
     async fn send_text_to_user(
         &self,

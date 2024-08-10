@@ -3,7 +3,8 @@ members = [
     "bin",
     "open_meteo",
     "users",
-    "core"
+    "core",
+    "reminders"
 ]
 resolver = "2"
 
