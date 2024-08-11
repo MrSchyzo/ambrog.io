@@ -1,8 +1,7 @@
 use super::bitmap::Bitmap;
 use std::num::{NonZeroU8, NonZeroUsize};
 
-use chrono::{DateTime, Datelike, Timelike};
-use chrono_tz::Tz;
+use chrono::{DateTime, Datelike, Timelike, Utc};
 
 #[derive(PartialEq, Eq)]
 pub struct ScheduleGrid {
@@ -36,7 +35,7 @@ impl ScheduleGrid {
         }
     }
 
-    pub fn next_scheduled_at(&self, now: &DateTime<Tz>) -> Option<DateTime<Tz>> {
+    pub fn next_scheduled_at(&self, now: &DateTime<Utc>) -> Option<DateTime<Utc>> {
         let now = Self::truncate_to_minute(now);
         let current_year = now.year();
         let year_start = self.year_start as i32;
@@ -58,7 +57,7 @@ impl ScheduleGrid {
         None
     }
 
-    fn find_month(&self, now: &DateTime<Tz>) -> Option<DateTime<Tz>> {
+    fn find_month(&self, now: &DateTime<Utc>) -> Option<DateTime<Utc>> {
         let current_month = now.month0() as usize;
         if self.months_of_year.get(current_month) {
             if let d @ Some(_) = self.find_day(now) {
@@ -76,7 +75,7 @@ impl ScheduleGrid {
         None
     }
 
-    fn find_day(&self, now: &DateTime<Tz>) -> Option<DateTime<Tz>> {
+    fn find_day(&self, now: &DateTime<Utc>) -> Option<DateTime<Utc>> {
         let current_day = now.day0() as usize;
         let current_weekday = (now.weekday().number_from_monday() - 1) as usize;
         if self.days_of_month.get(current_day) && self.days_of_week.get(current_weekday) {
@@ -106,7 +105,7 @@ impl ScheduleGrid {
         None
     }
 
-    fn find_hour(&self, now: &DateTime<Tz>) -> Option<DateTime<Tz>> {
+    fn find_hour(&self, now: &DateTime<Utc>) -> Option<DateTime<Utc>> {
         let current_hour = now.hour() as usize;
         if self.hours.get(current_hour) {
             if let d @ Some(_) = self.find_minute(now) {
@@ -124,7 +123,7 @@ impl ScheduleGrid {
         None
     }
 
-    fn find_minute(&self, now: &DateTime<Tz>) -> Option<DateTime<Tz>> {
+    fn find_minute(&self, now: &DateTime<Utc>) -> Option<DateTime<Utc>> {
         let current_minute = now.minute() as usize;
         if self.minutes.get(current_minute) {
             return Some(*now);
@@ -139,29 +138,29 @@ impl ScheduleGrid {
         None
     }
 
-    fn set_year(now: &DateTime<Tz>, years: i32) -> DateTime<Tz> {
+    fn set_year(now: &DateTime<Utc>, years: i32) -> DateTime<Utc> {
         Self::set_month0(now, 0)
             .and_then(|dt| dt.with_year(years))
             .unwrap()
     }
 
-    fn set_month0(now: &DateTime<Tz>, month: u32) -> Option<DateTime<Tz>> {
+    fn set_month0(now: &DateTime<Utc>, month: u32) -> Option<DateTime<Utc>> {
         Self::set_day0(now, 0).and_then(|dt| dt.with_month0(month))
     }
 
-    fn set_day0(now: &DateTime<Tz>, day: u32) -> Option<DateTime<Tz>> {
+    fn set_day0(now: &DateTime<Utc>, day: u32) -> Option<DateTime<Utc>> {
         Self::set_hour(now, 0).and_then(|dt| dt.with_day0(day))
     }
 
-    fn set_hour(now: &DateTime<Tz>, hour: u32) -> Option<DateTime<Tz>> {
+    fn set_hour(now: &DateTime<Utc>, hour: u32) -> Option<DateTime<Utc>> {
         Self::set_minute(now, 0).and_then(|dt| dt.with_hour(hour))
     }
 
-    fn set_minute(now: &DateTime<Tz>, minute: u32) -> Option<DateTime<Tz>> {
+    fn set_minute(now: &DateTime<Utc>, minute: u32) -> Option<DateTime<Utc>> {
         now.with_minute(minute)
     }
 
-    fn truncate_to_minute(now: &DateTime<Tz>) -> DateTime<Tz> {
+    fn truncate_to_minute(now: &DateTime<Utc>) -> DateTime<Utc> {
         now.with_nanosecond(0)
             .and_then(|dt| dt.with_second(0))
             .unwrap()
