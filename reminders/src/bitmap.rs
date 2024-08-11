@@ -17,6 +17,7 @@ impl<'a> Iterator for BitmapIterator<'a> {
     }
 }
 
+#[derive(PartialEq, Eq)]
 pub enum Bitmap {
     Byte(u8),
     Short(u16),

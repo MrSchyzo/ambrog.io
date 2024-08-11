@@ -4,6 +4,7 @@ use std::num::{NonZeroU8, NonZeroUsize};
 use chrono::{DateTime, Datelike, Timelike};
 use chrono_tz::Tz;
 
+#[derive(PartialEq, Eq)]
 pub struct ScheduleGrid {
     minutes: Bitmap,
     hours: Bitmap,
