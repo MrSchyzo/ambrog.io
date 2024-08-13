@@ -1,40 +1,38 @@
 use std::{
-    cell::{Ref, RefCell, RefMut},
     cmp::Ordering,
     collections::{BinaryHeap, HashMap},
     ops::{Deref, DerefMut},
-    rc::Rc,
+    sync::{Arc, Mutex, MutexGuard},
 };
 
-use chrono::DateTime;
 use chrono::Utc;
+use chrono::DateTime;
 use rand::{rngs::SmallRng, RngCore, SeedableRng};
 
-use crate::schedule::ScheduleGrid;
+use crate::schedule::UtcDateScheduler;
 
-#[derive(PartialEq, Eq)]
 pub enum Schedule {
     Once {
         when: DateTime<Utc>,
     },
     Recurrent {
         since: DateTime<Utc>,
-        schedule: ScheduleGrid,
+        schedule: Box<dyn UtcDateScheduler>,
     },
     RecurrentUntil {
         since: DateTime<Utc>,
         until: DateTime<Utc>,
-        schedule: ScheduleGrid,
+        schedule: Box<dyn UtcDateScheduler>,
     },
 }
 
 impl Schedule {
     pub fn next_tick(&self, now: &DateTime<Utc>) -> Option<DateTime<Utc>> {
         match self {
-            Self::Once { when } if now < when => Some(*when),
+            Self::Once { when } if now < when => Some(when.with_timezone(&Utc)),
             Self::Recurrent { since, schedule } => {
                 if now < since {
-                    Some(*since)
+                    Some(since.with_timezone(&Utc))
                 } else {
                     schedule.next_scheduled_at(now)
                 }
@@ -45,7 +43,7 @@ impl Schedule {
                 schedule,
             } => {
                 if now < since {
-                    Some(*since)
+                    Some(since.with_timezone(&Utc))
                 } else {
                     match schedule.next_scheduled_at(now) {
                         x @ Some(d) if d < *until => x,
@@ -58,11 +56,10 @@ impl Schedule {
     }
 }
 
-#[derive(PartialEq, Eq)]
 pub struct ReminderDefinition {
     schedule: Schedule,
     user_id: u64,
-    message: String,
+    message: Arc<String>,
 }
 
 impl ReminderDefinition {
@@ -74,12 +71,11 @@ impl ReminderDefinition {
         self.user_id
     }
 
-    pub fn message(&self) -> &str {
-        &self.message
+    pub fn message(&self) -> Arc<String> {
+        self.message.clone()
     }
 }
 
-#[derive(PartialEq, Eq)]
 pub struct ReminderState {
     id: i32,
     definition: ReminderDefinition,
@@ -127,66 +123,28 @@ impl ReminderState {
     }
 }
 
-impl PartialOrd for ReminderState {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for ReminderState {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        match (self.current_tick, other.current_tick) {
-            (None, Some(_)) => Ordering::Less,
-            (Some(_), None) => Ordering::Greater,
-            (Some(this), Some(other)) if this > other => Ordering::Greater,
-            (Some(this), Some(other)) if this < other => Ordering::Less,
-            _ => Ordering::Equal,
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct MinHeapWrapper<T: Ord> {
-    underlying_rc: Rc<RefCell<T>>,
+    contained: T,
 }
 
 impl<T: Ord> Deref for MinHeapWrapper<T> {
-    type Target = Rc<RefCell<T>>;
+    type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        &self.underlying_rc
+        &self.contained
     }
 }
 
 impl<T: Ord> DerefMut for MinHeapWrapper<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.underlying_rc
-    }
-}
-
-impl<T: Ord> MinHeapWrapper<T> {
-    pub fn new(state: T) -> Self {
-        Self {
-            underlying_rc: Rc::new(RefCell::new(state)),
-        }
-    }
-
-    pub fn from_rc_refcell(rc: Rc<RefCell<T>>) -> Self {
-        Self { underlying_rc: rc }
-    }
-
-    pub fn as_ref(&self) -> Ref<T> {
-        (*self.underlying_rc).borrow()
-    }
-
-    pub fn as_ref_mut(&self) -> RefMut<T> {
-        (*self.underlying_rc).borrow_mut()
+        &mut self.contained
     }
 }
 
 impl<T: Ord> PartialEq for MinHeapWrapper<T> {
     fn eq(&self, other: &Self) -> bool {
-        *self.as_ref() == *other.as_ref()
+        self.deref().eq(other.deref())
     }
 }
 
@@ -194,7 +152,7 @@ impl<T: Ord> Eq for MinHeapWrapper<T> {}
 
 impl<T: Ord> Ord for MinHeapWrapper<T> {
     fn cmp(&self, other: &Self) -> Ordering {
-        other.as_ref().cmp(&self.as_ref())
+        other.deref().cmp(self.deref())
     }
 }
 
@@ -204,22 +162,49 @@ impl<T: Ord> PartialOrd for MinHeapWrapper<T> {
     }
 }
 
-// TODO: idea, get rid of Rc<RefCell>
-/*
-   How:
-   1. lookup will own the actual reminder
-   2. BinaryHeap will contain only the time + lookupId
-   3. Heap2map deref will be emulated by entering the map
-   4. Heap will always get the entire reminder by asking the map
+pub struct Reminder {
+    user_id: u64,
+    id: i32,
+    current_tick: Option<DateTime<Utc>>,
+    message: Arc<String>,
+}
 
-   This way:
-   - no rc-refcell
-   - no runtime error for mut-borrow a shared ref across threads
-   - this might also simplify heap and external API contact surface
-*/
+impl Reminder {
+    pub fn reminder_id(&self) -> (u64, i32) {
+        (self.user_id, self.id)
+    }
+
+    pub fn next_tick(&self) -> Option<&DateTime<Utc>> {
+        self.current_tick.as_ref()
+    }
+
+    pub fn message(&self) -> Arc<String> {
+        self.message.clone()
+    }
+}
+
+#[derive(PartialEq, Eq)]
+struct ReminderHeapref {
+    user_id: u64,
+    id: i32,
+    next_tick: DateTime<Utc>,
+}
+
+impl PartialOrd for ReminderHeapref {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ReminderHeapref {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other.next_tick.cmp(&self.next_tick)
+    }
+}
+
 pub struct InMemoryStorage {
-    queue: BinaryHeap<MinHeapWrapper<ReminderState>>,
-    user_reminder_lookup: HashMap<u64, HashMap<i32, Rc<RefCell<ReminderState>>>>,
+    queue: BinaryHeap<ReminderHeapref>,
+    user_reminder_lookup: HashMap<u64, HashMap<i32, Mutex<ReminderState>>>,
     rand: rand::rngs::SmallRng,
 }
 
@@ -238,64 +223,58 @@ impl InMemoryStorage {
             .map(|d| self.internal_insert_new(definition, d))
     }
 
-    pub fn pop_state(&mut self) -> Option<Rc<RefCell<ReminderState>>> {
-        self.queue.pop().map(|x| Rc::clone(&x))
+    pub fn dequeue_next(&mut self) -> Option<Reminder> {
+        self.queue
+            .pop()
+            .and_then(|reminder| self.get_reminder(&reminder.user_id, &reminder.id))
+            .map(|rem| {
+                let (user_id, id) = rem.reminder_id();
+                Reminder {
+                    user_id,
+                    id,
+                    current_tick: rem.current_tick().cloned(),
+                    message: rem.definition.message(),
+                }
+            })
     }
 
-    pub fn reinsert_reminder(
-        &mut self,
-        reminder: Rc<RefCell<ReminderState>>,
-        then: &DateTime<Utc>,
-    ) {
-        reminder.borrow_mut().fast_forward_after(then);
-        match reminder.borrow().is_active() {
-            false => {
-                let (user_id, id) = (*reminder).borrow().reminder_id();
-                self.user_reminder_lookup
-                    .get_mut(&user_id)
-                    .map(|reminders| reminders.remove(&id));
-            }
-            true => self.internal_insert(Rc::clone(&reminder)),
-        };
-    }
-
-    pub fn defuse(&mut self, user_id: &u64, reminder_id: &i32) {
-        self.user_reminder_lookup
-            .get(user_id)
-            .and_then(|lookup| (*lookup).get(reminder_id).cloned())
-            .inspect(|state| {
-                (*state.clone()).borrow_mut().defuse();
+    pub fn advance(&mut self, reminder: Reminder, then: &DateTime<Utc>) {
+        let (user_id, id) = reminder.reminder_id();
+        self.get_reminder(&user_id, &id)
+            .and_then(|mut state| state.fast_forward_after(then).cloned())
+            .map(|next_tick| {
+                self.queue.push(ReminderHeapref {
+                    user_id,
+                    id,
+                    next_tick,
+                });
+            })
+            .unwrap_or_else(|| {
+                self.remove_reminder(&user_id, &id);
             });
     }
 
-    pub fn get(&self, user_id: &u64, reminder_id: &i32) -> Option<Ref<ReminderDefinition>> {
-        self.user_reminder_lookup.get(user_id).and_then(|lookup| {
-            lookup
-                .get(reminder_id)
-                .map(|rc| Ref::map((**rc).borrow(), |state| state.definition()))
-        })
+    pub fn defuse(&self, user_id: &u64, reminder_id: &i32) {
+        self.get_reminder(user_id, reminder_id)
+            .map(|mut state| state.defuse());
     }
 
-    pub fn get_all(&self, user_id: &u64) -> HashMap<i32, Ref<ReminderDefinition>> {
+    pub fn get(&self, user_id: &u64, reminder_id: &i32) -> Option<Reminder> {
+        self.get_reminder(user_id, reminder_id)
+            .map(Self::into_reminder)
+    }
+
+    pub fn get_all(&self, user_id: &u64) -> HashMap<i32, Reminder> {
         self.user_reminder_lookup
             .get(user_id)
             .map(|lookup| {
                 lookup
-                    .iter()
-                    .map(|(id, rc)| (*id, Ref::map((**rc).borrow(), |state| state.definition())))
-                    .collect::<HashMap<i32, Ref<ReminderDefinition>>>()
+                    .values()
+                    .filter_map(|lock| lock.lock().ok())
+                    .map(|reminder| (reminder.id, Self::into_reminder(reminder)))
+                    .collect::<HashMap<i32, Reminder>>()
             })
             .unwrap_or_default()
-    }
-
-    fn internal_pop(&mut self) -> Option<Rc<RefCell<ReminderState>>> {
-        self.queue.pop().map(|rc| {
-            let (user_id, id) = (*rc).borrow().reminder_id();
-            self.user_reminder_lookup
-                .get_mut(&user_id)
-                .map(|reminders| reminders.remove(&id));
-            Rc::clone(&rc)
-        })
     }
 
     fn internal_insert_new(&mut self, definition: ReminderDefinition, now: DateTime<Utc>) -> i32 {
@@ -309,6 +288,11 @@ impl InMemoryStorage {
             id = self.rand.next_u32() as i32;
         }
 
+        let heap_ref = ReminderHeapref {
+            user_id: definition.user_id,
+            id,
+            next_tick: now,
+        };
         let state = ReminderState {
             id,
             definition,
@@ -316,17 +300,33 @@ impl InMemoryStorage {
             defused: false,
         };
 
-        self.internal_insert(Rc::new(RefCell::new(state)));
+        map.insert(id, Mutex::new(state));
+        self.queue.push(heap_ref);
 
         id
     }
 
-    fn internal_insert(&mut self, state_ref: Rc<RefCell<ReminderState>>) {
-        let (user_id, id) = (*Rc::clone(&state_ref)).borrow().reminder_id();
+    fn get_reminder(&self, user_id: &u64, id: &i32) -> Option<MutexGuard<ReminderState>> {
         self.user_reminder_lookup
-            .entry(user_id)
-            .or_default()
-            .insert(id, Rc::clone(&state_ref));
-        self.queue.push(MinHeapWrapper::from_rc_refcell(state_ref));
+            .get(user_id)
+            .and_then(|reminders| reminders.get(id))
+            .and_then(|lock| lock.lock().ok())
+    }
+
+    fn remove_reminder(&mut self, user_id: &u64, id: &i32) -> Option<Mutex<ReminderState>> {
+        self.user_reminder_lookup
+            .get_mut(user_id)
+            .and_then(|reminders| reminders.remove(id))
+    }
+
+    fn into_reminder(reminder: MutexGuard<ReminderState>) -> Reminder {
+        Reminder{
+            id: reminder.id,
+            user_id: reminder.definition.user_id(),
+            message: reminder.definition().message(),
+            current_tick: reminder.current_tick().cloned(),
+        }
     }
 }
+
+
