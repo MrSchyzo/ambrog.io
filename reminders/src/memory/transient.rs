@@ -5,8 +5,8 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
 };
 
-use chrono::Utc;
 use chrono::DateTime;
+use chrono::Utc;
 use rand::{rngs::SmallRng, RngCore, SeedableRng};
 
 use crate::schedule::UtcDateScheduler;
@@ -174,7 +174,7 @@ impl Reminder {
         (self.user_id, self.id)
     }
 
-    pub fn next_tick(&self) -> Option<&DateTime<Utc>> {
+    pub fn current_tick(&self) -> Option<&DateTime<Utc>> {
         self.current_tick.as_ref()
     }
 
@@ -255,8 +255,9 @@ impl InMemoryStorage {
     }
 
     pub fn defuse(&self, user_id: &u64, reminder_id: &i32) {
-        self.get_reminder(user_id, reminder_id)
-            .map(|mut state| state.defuse());
+        if let Some(mut state) = self.get_reminder(user_id, reminder_id) {
+            state.defuse()
+        }
     }
 
     pub fn get(&self, user_id: &u64, reminder_id: &i32) -> Option<Reminder> {
@@ -320,7 +321,7 @@ impl InMemoryStorage {
     }
 
     fn into_reminder(reminder: MutexGuard<ReminderState>) -> Reminder {
-        Reminder{
+        Reminder {
             id: reminder.id,
             user_id: reminder.definition.user_id(),
             message: reminder.definition().message(),
@@ -328,5 +329,3 @@ impl InMemoryStorage {
         }
     }
 }
-
-

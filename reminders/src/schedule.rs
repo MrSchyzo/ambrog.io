@@ -23,7 +23,7 @@ impl<Tz: TimeZone> ScheduleGrid<Tz> {
         months_of_year: Vec<usize>,
         year_cadence: NonZeroU8,
         year_start: u32,
-        timezone: Tz
+        timezone: Tz,
     ) -> Self {
         Self {
             minutes: Bitmap::new_truncated(NonZeroUsize::new(60).unwrap(), minutes),
@@ -33,7 +33,7 @@ impl<Tz: TimeZone> ScheduleGrid<Tz> {
             months_of_year: Bitmap::new_truncated(NonZeroUsize::new(12).unwrap(), months_of_year),
             year_cadence,
             year_start,
-            timezone
+            timezone,
         }
     }
 
@@ -50,7 +50,10 @@ impl<Tz: TimeZone> ScheduleGrid<Tz> {
         };
 
         for _ in 0..50 {
-            current_date = match self.find_month(&current_date).map(|d| d.with_timezone(&Utc)) {
+            current_date = match self
+                .find_month(&current_date)
+                .map(|d| d.with_timezone(&Utc))
+            {
                 d @ Some(_) => return d,
                 None => Self::set_year(&current_date, current_date.year() + cadence),
             }

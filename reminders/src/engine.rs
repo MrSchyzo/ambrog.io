@@ -40,7 +40,7 @@ pub enum EngineMessage {
 
 #[async_trait]
 pub trait ReminderCallback {
-    async fn call(&self, user: u64, reminder_id: i32, message: &str);
+    async fn call(&self, user: u64, reminder_id: i32, message: Arc<String>);
 }
 
 pub struct Engine {
@@ -67,6 +67,10 @@ impl Engine {
         }
     }
 
+    pub async fn stop(&self) -> bool {
+        self.sender.try_send(EngineMessage::Stop).is_ok()
+    }
+
     pub async fn add(&self, def: ReminderDefinition) -> Option<i32> {
         let id = self
             .storage
@@ -83,27 +87,26 @@ impl Engine {
 
     pub async fn run(&self) {
         loop {
-            let reminder = match self.storage.lock().await.pop_state() {
+            let reminder = match self.storage.lock().await.dequeue_next() {
                 None => match self.receiver.lock().await.recv().await {
                     None | Some(EngineMessage::Stop) => return,
                     Some(EngineMessage::WakeUp) => continue,
                 },
                 Some(reminder) => reminder,
             };
-            let tick = reminder.borrow().current_tick().copied();
 
-            if let Some(date) = tick {
+            if let Some(date) = reminder.current_tick().copied() {
                 let now = self.time_provider.now();
                 let time_to_wait = now.signed_duration_since(date).num_milliseconds().max(0) as u64;
                 let mut channel = self.receiver.lock().await;
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_millis(time_to_wait)) => {
                         tokio::spawn({
-                            let message = reminder.borrow().definition().message().to_owned();
-                            let (user, id) = reminder.borrow().reminder_id();
+                            let message = reminder.message().clone();
+                            let (user, id) = reminder.reminder_id();
                             let callback = self.callback.clone();
                             async move {
-                                callback.call(user, id, &message).await;
+                                callback.call(user, id, message).await;
                             }
                         });
                     }
@@ -115,7 +118,7 @@ impl Engine {
             self.storage
                 .lock()
                 .await
-                .reinsert_reminder(reminder, &self.time_provider.now());
+                .advance(reminder, &self.time_provider.now());
         }
     }
 }
