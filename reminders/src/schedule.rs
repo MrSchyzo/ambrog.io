@@ -15,7 +15,7 @@ pub struct ScheduleGrid<Tz: TimeZone> {
 }
 
 impl<Tz: TimeZone> ScheduleGrid<Tz> {
-    pub fn verbose_new(
+    pub fn new(
         minutes: Vec<usize>,
         hours: Vec<usize>,
         days_of_month: Vec<usize>,
@@ -179,5 +179,50 @@ pub trait UtcDateScheduler {
 impl<Tz: TimeZone> UtcDateScheduler for ScheduleGrid<Tz> {
     fn next_scheduled_at(&self, now: &DateTime<Utc>) -> Option<DateTime<Utc>> {
         self.next_scheduled_after(now)
+    }
+}
+
+pub enum Schedule {
+    Once {
+        when: DateTime<Utc>,
+    },
+    Recurrent {
+        since: DateTime<Utc>,
+        schedule: Box<dyn UtcDateScheduler>,
+    },
+    RecurrentUntil {
+        since: DateTime<Utc>,
+        until: DateTime<Utc>,
+        schedule: Box<dyn UtcDateScheduler>,
+    },
+}
+
+impl Schedule {
+    pub fn next_tick(&self, now: &DateTime<Utc>) -> Option<DateTime<Utc>> {
+        match self {
+            Self::Once { when } if now < when => Some(when.with_timezone(&Utc)),
+            Self::Recurrent { since, schedule } => {
+                if now < since {
+                    Some(since.with_timezone(&Utc))
+                } else {
+                    schedule.next_scheduled_at(now)
+                }
+            }
+            Self::RecurrentUntil {
+                since,
+                until,
+                schedule,
+            } => {
+                if now < since {
+                    Some(since.with_timezone(&Utc))
+                } else {
+                    match schedule.next_scheduled_at(now) {
+                        x @ Some(d) if d < *until => x,
+                        _ => None,
+                    }
+                }
+            }
+            _ => None,
+        }
     }
 }

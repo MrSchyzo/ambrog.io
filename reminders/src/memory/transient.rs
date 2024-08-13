@@ -1,82 +1,16 @@
 use std::{
     cmp::Ordering,
     collections::{BinaryHeap, HashMap},
-    ops::{Deref, DerefMut},
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{Mutex, MutexGuard},
 };
 
 use chrono::DateTime;
 use chrono::Utc;
 use rand::{rngs::SmallRng, RngCore, SeedableRng};
 
-use crate::schedule::UtcDateScheduler;
+use crate::interface::{Reminder, ReminderDefinition};
 
-pub enum Schedule {
-    Once {
-        when: DateTime<Utc>,
-    },
-    Recurrent {
-        since: DateTime<Utc>,
-        schedule: Box<dyn UtcDateScheduler>,
-    },
-    RecurrentUntil {
-        since: DateTime<Utc>,
-        until: DateTime<Utc>,
-        schedule: Box<dyn UtcDateScheduler>,
-    },
-}
-
-impl Schedule {
-    pub fn next_tick(&self, now: &DateTime<Utc>) -> Option<DateTime<Utc>> {
-        match self {
-            Self::Once { when } if now < when => Some(when.with_timezone(&Utc)),
-            Self::Recurrent { since, schedule } => {
-                if now < since {
-                    Some(since.with_timezone(&Utc))
-                } else {
-                    schedule.next_scheduled_at(now)
-                }
-            }
-            Self::RecurrentUntil {
-                since,
-                until,
-                schedule,
-            } => {
-                if now < since {
-                    Some(since.with_timezone(&Utc))
-                } else {
-                    match schedule.next_scheduled_at(now) {
-                        x @ Some(d) if d < *until => x,
-                        _ => None,
-                    }
-                }
-            }
-            _ => None,
-        }
-    }
-}
-
-pub struct ReminderDefinition {
-    schedule: Schedule,
-    user_id: u64,
-    message: Arc<String>,
-}
-
-impl ReminderDefinition {
-    pub fn next_tick(&self, now: &DateTime<Utc>) -> Option<DateTime<Utc>> {
-        self.schedule.next_tick(now)
-    }
-
-    pub fn user_id(&self) -> u64 {
-        self.user_id
-    }
-
-    pub fn message(&self) -> Arc<String> {
-        self.message.clone()
-    }
-}
-
-pub struct ReminderState {
+struct ReminderState {
     id: i32,
     definition: ReminderDefinition,
     current_tick: Option<DateTime<Utc>>,
@@ -96,16 +30,6 @@ impl ReminderState {
         self.defused = true;
     }
 
-    pub fn definition(&self) -> &ReminderDefinition {
-        &self.definition
-    }
-
-    pub fn next_tick(&self, after: Option<&DateTime<Utc>>) -> Option<DateTime<Utc>> {
-        after
-            .or(self.current_tick())
-            .and_then(|d| self.definition.next_tick(d))
-    }
-
     pub fn current_tick(&self) -> Option<&DateTime<Utc>> {
         if self.defused {
             None
@@ -115,71 +39,7 @@ impl ReminderState {
     }
 
     pub fn reminder_id(&self) -> (u64, i32) {
-        (self.definition.user_id, self.id)
-    }
-
-    pub fn is_active(&self) -> bool {
-        self.current_tick.is_some() && self.defused
-    }
-}
-
-#[derive(Clone)]
-pub struct MinHeapWrapper<T: Ord> {
-    contained: T,
-}
-
-impl<T: Ord> Deref for MinHeapWrapper<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.contained
-    }
-}
-
-impl<T: Ord> DerefMut for MinHeapWrapper<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.contained
-    }
-}
-
-impl<T: Ord> PartialEq for MinHeapWrapper<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.deref().eq(other.deref())
-    }
-}
-
-impl<T: Ord> Eq for MinHeapWrapper<T> {}
-
-impl<T: Ord> Ord for MinHeapWrapper<T> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other.deref().cmp(self.deref())
-    }
-}
-
-impl<T: Ord> PartialOrd for MinHeapWrapper<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-pub struct Reminder {
-    user_id: u64,
-    id: i32,
-    current_tick: Option<DateTime<Utc>>,
-    message: Arc<String>,
-}
-
-impl Reminder {
-    pub fn reminder_id(&self) -> (u64, i32) {
-        (self.user_id, self.id)
-    }
-
-    pub fn current_tick(&self) -> Option<&DateTime<Utc>> {
-        self.current_tick.as_ref()
-    }
-
-    pub fn message(&self) -> Arc<String> {
-        self.message.clone()
+        (self.definition.user_id(), self.id)
     }
 }
 
@@ -208,6 +68,12 @@ pub struct InMemoryStorage {
     rand: rand::rngs::SmallRng,
 }
 
+impl Default for InMemoryStorage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InMemoryStorage {
     pub fn new() -> Self {
         Self {
@@ -229,12 +95,12 @@ impl InMemoryStorage {
             .and_then(|reminder| self.get_reminder(&reminder.user_id, &reminder.id))
             .map(|rem| {
                 let (user_id, id) = rem.reminder_id();
-                Reminder {
+                Reminder::new(
                     user_id,
                     id,
-                    current_tick: rem.current_tick().cloned(),
-                    message: rem.definition.message(),
-                }
+                    rem.current_tick().cloned(),
+                    rem.definition.message(),
+                )
             })
     }
 
@@ -281,7 +147,7 @@ impl InMemoryStorage {
     fn internal_insert_new(&mut self, definition: ReminderDefinition, now: DateTime<Utc>) -> i32 {
         let map = self
             .user_reminder_lookup
-            .entry(definition.user_id)
+            .entry(definition.user_id())
             .or_default();
 
         let mut id = self.rand.next_u32() as i32;
@@ -289,8 +155,8 @@ impl InMemoryStorage {
             id = self.rand.next_u32() as i32;
         }
 
-        let heap_ref = ReminderHeapref {
-            user_id: definition.user_id,
+        let heap_ref: ReminderHeapref = ReminderHeapref {
+            user_id: definition.user_id(),
             id,
             next_tick: now,
         };
@@ -321,11 +187,11 @@ impl InMemoryStorage {
     }
 
     fn into_reminder(reminder: MutexGuard<ReminderState>) -> Reminder {
-        Reminder {
-            id: reminder.id,
-            user_id: reminder.definition.user_id(),
-            message: reminder.definition().message(),
-            current_tick: reminder.current_tick().cloned(),
-        }
+        Reminder::new(
+            reminder.definition.user_id(),
+            reminder.id,
+            reminder.current_tick().cloned(),
+            reminder.definition.message(),
+        )
     }
 }
