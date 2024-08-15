@@ -7,10 +7,22 @@ As a bot, it executes certain operations depending on the command.
 - `[...]languorino[...]`: asks `ambrog.io` some Ferrero® Rocher
 - `audio <YT_video_id>`: returns a link with the audio of the selected YT video
 - `video <YT_video_id>`: returns a link with the video of the selected YT video
+- Reminder-related commands have a separate chapter due to their complexity
 - (🔐 admin only) `dormi pure`: forces `ambrog.io` to shut down
 - (🔐 admin only) `add <user_id>`: enables telegram `<user_id>` to talk with `ambrog.io`
 - (🔐 admin only) `remove <user_id>`: disables telegram `<user_id>` to talk with `ambrog.io`
 - anything else is just echoed to the enabled users
+
+### Reminder commands
+- `promemoria <ID>`: returns user's reminder with the specified numeric ID
+- `promemoria miei`: returns all user's reminders' list
+- `scordati <ID>`: deletes user's reminder with the specified numeric ID
+- `ricordami <TIME EXPR>\n<message in new line>`: creates a reminder with the desired scheduling and the specified message
+  for more info, see `Time expression` section
+
+### Time expression
+The reminder time expression is rather extensive and it needs a dedicated section to explain the extent of its potential.
+TODO
 
 ### Other features
 Apart from commands, the following is supported:
@@ -34,6 +46,8 @@ See the architecture files ([XML](docs/arch.xml), [SVG](docs/arch.svg), [PNG](do
     - see [this](https://ffmpeg.org/download.html)
 - a running `redis` cluster that can be reached
     - you can run `docker compose up -d` from the repo root, a redis at `localhost:6379` will be run
+- a running `mongo` cluster that can be reached
+    - you can run `docker compose up -d` from the repo root, a redis at `localhost:27017` will be run with `root:root`
 - a `ngrok` tunnel available
     - see [step 3](https://ngrok.com/docs/getting-started/rust/#step-3-run-it)
     - see [step 4](https://ngrok.com/docs/getting-started/rust/#step-4-always-use-the-same-domain)
@@ -47,6 +61,8 @@ See the architecture files ([XML](docs/arch.xml), [SVG](docs/arch.svg), [PNG](do
     - `NGROK_AUTHTOKEN=yourNgrokAuthToken`
     - `USER_ID=0`
     - `REDIS_URL=redis://localhost`
+    - `MONGO_URL=mongodb://user:pass@localhost:27017`
+    - `MONGO_DB=ambrogio`
     - `BOT_NAME=Ambrog.io`
     - `UPDATES_REDIS_TOPIC=updates`
     - `UPDATES_WEBHOOK_DOMAIN=your-ngrok-domain-name`

@@ -6,11 +6,17 @@ use std::{
 
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
-use chrono_tz::Europe;
+use chrono_tz::{Europe, Tz};
+use futures::{pin_mut, StreamExt};
+use mongodb::Client;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Mutex as AsyncMutex;
 
-use crate::{bitmap::Bitmap, memory::transient::InMemoryStorage, schedule::ScheduleGrid};
+use crate::{
+    bitmap::Bitmap,
+    memory::{persistent::MongoloidStorage, transient::InMemoryStorage},
+    schedule::ScheduleGrid,
+};
 
 /*
  * Needed:
@@ -49,21 +55,45 @@ pub struct ReminderEngine {
     receiver: AsyncMutex<Receiver<EngineMessage>>,
     sender: Sender<EngineMessage>,
     callback: Arc<dyn ReminderCallback + Send + Sync>,
+    permanent_storage: MongoloidStorage,
 }
 
 impl ReminderEngine {
-    pub fn new(
+    pub async fn new_and_init(
         time_provider: Arc<dyn TimeProvider + Send + Sync>,
         callback: Arc<dyn ReminderCallback + Send + Sync>,
+        mongo_url: &str,
+        mongo_db: &str,
     ) -> Self {
         let (sender, receiver) = channel::<EngineMessage>(128);
-        Self {
+        let db = Client::with_uri_str(mongo_url)
+            .await
+            .unwrap()
+            .database(mongo_db);
+        let ret = Self {
             storage: Arc::new(Mutex::new(InMemoryStorage::new())),
-            time_provider,
+            time_provider: time_provider.clone(),
             receiver: AsyncMutex::new(receiver),
             sender,
             callback,
+            permanent_storage: MongoloidStorage::new(db),
+        };
+
+        tracing::info!("Initialising state");
+        let records = ret.permanent_storage.get_all().await;
+        pin_mut!(records);
+        let now = time_provider.now();
+        while let Some(record) = records.next().await {
+            record
+                .ok()
+                .map(|(definition, id)| ret.obtain_storage().insert(definition, &now, Some(id)));
         }
+        tracing::info!(
+            "State is initialised with {} record(s)",
+            ret.obtain_storage().size()
+        );
+
+        ret
     }
 
     pub fn stop(&self) -> bool {
@@ -72,13 +102,19 @@ impl ReminderEngine {
 
     pub async fn add(&self, def: ReminderDefinition) -> Option<i32> {
         tracing::info!("Adding definition for user {}", def.user_id);
-        let id = self.obtain_storage().insert(def, &self.time_provider.now());
+        let id = self
+            .obtain_storage()
+            .insert(def.clone(), &self.time_provider.now(), None);
         tracing::info!("Added definition id: {:?}", id);
         let _ = self.sender.try_send(EngineMessage::WakeUp);
+        tracing::info!("Inserting to mongo with id: {:?}", id);
+        self.permanent_storage.create(&def, id?).await;
+        tracing::info!("Inserted to mongo with id: {:?}", id);
         id
     }
 
     pub async fn defuse(&self, user: u64, id: i32) {
+        self.permanent_storage.delete(user, id).await;
         tracing::info!("Defusing reminder ({}, {})", user, id);
         self.internal_defuse(&user, &id);
         tracing::info!("Defused reminder ({}, {})", user, id);
@@ -185,6 +221,7 @@ impl Reminder {
     }
 }
 
+#[derive(Clone)]
 pub struct ReminderDefinition {
     schedule: Schedule,
     user_id: u64,
@@ -211,20 +248,25 @@ impl ReminderDefinition {
     pub fn message(&self) -> Arc<String> {
         self.message.clone()
     }
+
+    pub fn schedule(&self) -> &Schedule {
+        &self.schedule
+    }
 }
 
+#[derive(Clone)]
 pub enum Schedule {
     Once {
         when: DateTime<Utc>,
     },
     Recurrent {
         since: DateTime<Utc>,
-        schedule: Box<dyn UtcDateScheduler + Send + Sync>,
+        schedule: ScheduleGrid,
     },
     RecurrentUntil {
         since: DateTime<Utc>,
         until: DateTime<Utc>,
-        schedule: Box<dyn UtcDateScheduler + Send + Sync>,
+        schedule: ScheduleGrid,
     },
 }
 
@@ -233,7 +275,7 @@ impl Schedule {
         let builder = ScheduleGridBuilder::new(Europe::Rome);
         Self::Recurrent {
             since: Utc.from_utc_datetime(&NaiveDateTime::from_timestamp_millis(0).unwrap()),
-            schedule: Box::new(builder.build()),
+            schedule: builder.build(),
         }
     }
 
@@ -244,7 +286,7 @@ impl Schedule {
                 if now < since {
                     Some(*since)
                 } else {
-                    schedule.next_scheduled_at(now)
+                    schedule.next_scheduled_after(now)
                 }
             }
             Self::RecurrentUntil {
@@ -255,7 +297,7 @@ impl Schedule {
                 if now < since {
                     Some(*since)
                 } else {
-                    match schedule.next_scheduled_at(now) {
+                    match schedule.next_scheduled_after(now) {
                         x @ Some(d) if d < *until => x,
                         _ => None,
                     }
@@ -266,7 +308,7 @@ impl Schedule {
     }
 }
 
-pub struct ScheduleGridBuilder<Tz: TimeZone> {
+pub struct ScheduleGridBuilder {
     minutes: Bitmap,
     hours: Bitmap,
     weeks_of_month: Bitmap,
@@ -278,7 +320,7 @@ pub struct ScheduleGridBuilder<Tz: TimeZone> {
     timezone: Tz,
 }
 
-impl<Tz: TimeZone> ScheduleGridBuilder<Tz> {
+impl ScheduleGridBuilder {
     pub fn new(timezone: Tz) -> Self {
         Self {
             minutes: Bitmap::all_set(NonZeroUsize::new(60).unwrap()),
@@ -293,7 +335,7 @@ impl<Tz: TimeZone> ScheduleGridBuilder<Tz> {
         }
     }
 
-    pub fn build(self) -> ScheduleGrid<Tz> {
+    pub fn build(self) -> ScheduleGrid {
         ScheduleGrid::new(
             self.minutes,
             self.hours,
@@ -308,12 +350,11 @@ impl<Tz: TimeZone> ScheduleGridBuilder<Tz> {
     }
 }
 
-pub trait UtcDateScheduler {
-    fn next_scheduled_at(&self, now: &DateTime<Utc>) -> Option<DateTime<Utc>>;
-}
-
-impl<Tz: TimeZone> UtcDateScheduler for ScheduleGrid<Tz> {
-    fn next_scheduled_at(&self, now: &DateTime<Utc>) -> Option<DateTime<Utc>> {
-        self.next_scheduled_after(now)
-    }
+pub enum ScheduleInspection {
+    Minute,
+    Hour,
+    WeekOfMonth,
+    DayOfMonth,
+    DaysOfWeek,
+    MonthsOfYear,
 }

@@ -1,9 +1,13 @@
+use crate::interface::ScheduleInspection;
+
 use super::bitmap::Bitmap;
 use std::num::{NonZeroU8, NonZeroUsize};
 
-use chrono::{DateTime, Datelike, Duration, TimeZone, Timelike, Utc};
+use chrono::{DateTime, Datelike, Duration, Timelike, Utc};
+use chrono_tz::Tz;
 
-pub struct ScheduleGrid<Tz: TimeZone> {
+#[derive(Clone)]
+pub struct ScheduleGrid {
     minutes: Bitmap,
     hours: Bitmap,
     weeks_of_month: Bitmap,
@@ -15,7 +19,7 @@ pub struct ScheduleGrid<Tz: TimeZone> {
     timezone: Tz,
 }
 
-impl<Tz: TimeZone> ScheduleGrid<Tz> {
+impl ScheduleGrid {
     pub fn explicitly_new(
         minutes: Vec<usize>,
         hours: Vec<usize>,
@@ -168,7 +172,7 @@ impl<Tz: TimeZone> ScheduleGrid<Tz> {
     fn find_minute(&self, now: &DateTime<Tz>) -> Option<DateTime<Tz>> {
         let current_minute = now.minute() as usize;
         if self.minutes.get(current_minute) {
-            return Some(now.clone());
+            return Some(*now);
         }
 
         for minute in self.minutes.iter(current_minute) {
@@ -210,5 +214,26 @@ impl<Tz: TimeZone> ScheduleGrid<Tz> {
 
     fn weekday_occurrance(now: &DateTime<Tz>) -> usize {
         (now.day0() / 7) as usize
+    }
+
+    pub fn inspect(&self, inspect_type: ScheduleInspection) -> Vec<u8> {
+        match inspect_type {
+            ScheduleInspection::Minute => &self.minutes,
+            ScheduleInspection::Hour => &self.hours,
+            ScheduleInspection::WeekOfMonth => &self.weeks_of_month,
+            ScheduleInspection::DayOfMonth => &self.days_of_month,
+            ScheduleInspection::DaysOfWeek => &self.days_of_week,
+            ScheduleInspection::MonthsOfYear => &self.months_of_year,
+        }
+        .clone()
+        .into()
+    }
+
+    pub fn inspect_year_and_cadence(&self) -> (u32, NonZeroU8) {
+        (self.year_start, self.year_cadence)
+    }
+
+    pub fn inspect_timezone(&self) -> Tz {
+        self.timezone
     }
 }

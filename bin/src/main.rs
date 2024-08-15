@@ -217,11 +217,18 @@ async fn get_engine(
 ) -> Result<Arc<ReminderEngine>, String> {
     REMINDER_ENGINE
         .get_or_try_init(async {
+            let config = get_config().await;
+
             let callback = get_callback(telegram).await?;
-            Ok(Arc::new(ReminderEngine::new(
-                Arc::new(ChronoTimeProvider {}),
-                callback,
-            )))
+            Ok(Arc::new(
+                ReminderEngine::new_and_init(
+                    Arc::new(ChronoTimeProvider {}),
+                    callback,
+                    &config.mongo.url,
+                    &config.mongo.db,
+                )
+                .await,
+            ))
         })
         .await
         .cloned()

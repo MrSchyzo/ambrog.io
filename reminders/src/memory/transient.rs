@@ -83,10 +83,15 @@ impl InMemoryStorage {
         }
     }
 
-    pub fn insert(&mut self, definition: ReminderDefinition, now: &DateTime<Utc>) -> Option<i32> {
+    pub fn insert(
+        &mut self,
+        definition: ReminderDefinition,
+        now: &DateTime<Utc>,
+        id: Option<i32>,
+    ) -> Option<i32> {
         definition
             .next_tick(now)
-            .map(|d| self.internal_insert_new(definition, d))
+            .map(|d| self.internal_insert_new(definition, d, id))
     }
 
     pub fn dequeue_next(&mut self) -> Option<Reminder> {
@@ -128,6 +133,10 @@ impl InMemoryStorage {
         }
     }
 
+    pub fn size(&self) -> usize {
+        self.queue.len()
+    }
+
     pub fn get(&self, user_id: &u64, reminder_id: &i32) -> Option<Reminder> {
         self.get_reminder(user_id, reminder_id)
             .map(Self::into_reminder)
@@ -146,16 +155,24 @@ impl InMemoryStorage {
             .unwrap_or_default()
     }
 
-    fn internal_insert_new(&mut self, definition: ReminderDefinition, now: DateTime<Utc>) -> i32 {
+    fn internal_insert_new(
+        &mut self,
+        definition: ReminderDefinition,
+        now: DateTime<Utc>,
+        id: Option<i32>,
+    ) -> i32 {
         let map = self
             .user_reminder_lookup
             .entry(definition.user_id())
             .or_default();
 
-        let mut id = self.rand.next_u32() as i32;
-        while map.contains_key(&id) {
-            id = self.rand.next_u32() as i32;
-        }
+        let id = id.unwrap_or_else(|| {
+            let mut id = self.rand.next_u32() as i32;
+            while map.contains_key(&id) {
+                id = self.rand.next_u32() as i32;
+            }
+            id
+        });
 
         let heap_ref: ReminderHeapref = ReminderHeapref {
             user_id: definition.user_id(),
