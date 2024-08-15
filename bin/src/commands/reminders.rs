@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
-use ambrogio_reminders::interface::{ReminderDefinition, ReminderEngine, Schedule};
+use ambrogio_reminders::interface::{try_interpret_definition, ReminderDefinition, ReminderEngine};
 use ambrogio_users::data::User;
 use async_trait::async_trait;
+use chrono::Utc;
 use regex::Regex;
 
 use crate::telegram::TelegramProxy;
@@ -15,6 +16,12 @@ enum Command {
     Read { user: User, reminder_id: i32 },
     ReadAll { user: User },
     JustAnswer(String),
+}
+
+impl Command {
+    fn new_create(definition: ReminderDefinition) -> Self {
+        Self::Create { definition }
+    }
 }
 
 pub struct RemindersHandler {
@@ -72,7 +79,7 @@ impl MessageHandler for RemindersHandler {
 }
 
 fn into_command(text: &str, user: User) -> Command {
-    let arguments: Vec<&str> = text.splitn(2, '\n').collect();
+    let arguments: Vec<&str> = text.splitn(2, '\n').filter(|txt| !txt.is_empty()).collect();
     tracing::info!("Arguments: {:?}", arguments);
     tracing::info!("Text: {}", text);
     let tokens = arguments[0]
@@ -117,14 +124,11 @@ fn into_scordati(tokens: Vec<&str>, user: User) -> Command {
     scordati_help()
 }
 
-fn into_ricordami(_: Vec<&str>, message: &str, user: User) -> Command {
-    let schedule = Schedule::every_fucking_minute_of_your_damn_life();
-
-    return Command::Create {
-        definition: ReminderDefinition::new(schedule, user.id().0, message.to_owned()),
-    };
-
-    ricordami_help()
+fn into_ricordami(tokens: Vec<&str>, message: &str, user: User) -> Command {
+    try_interpret_definition(tokens, message, &Utc::now())
+        .map(|schedule| ReminderDefinition::new(schedule, user.id().0, message.to_owned()))
+        .map(Command::new_create)
+        .unwrap_or_else(ricordami_help)
 }
 
 fn generic_help() -> Command {

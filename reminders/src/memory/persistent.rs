@@ -1,9 +1,10 @@
-use std::{num::NonZeroU8};
+use std::num::NonZeroU8;
 
 use chrono::{TimeZone, Utc};
 use futures::{Stream, StreamExt};
 use mongodb::{
-    bson::{self, doc}, Collection, Database,
+    bson::{self, doc},
+    Collection, Database,
 };
 use serde::{Deserialize, Serialize};
 

@@ -4,6 +4,7 @@ use std::{
     time::Duration,
 };
 
+pub use crate::text::interpreter::*;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::{Europe, Tz};
@@ -17,15 +18,6 @@ use crate::{
     memory::{persistent::MongoloidStorage, transient::InMemoryStorage},
     schedule::ScheduleGrid,
 };
-
-/*
- * Needed:
- * 4. Write-through mechanism
- * 5. On bootup, load the whole state
- *
- * Ideas:
- * - SQLite as backing engine
- */
 
 pub trait TimeProvider {
     fn now(&self) -> DateTime<Utc>;
@@ -271,10 +263,12 @@ pub enum Schedule {
 }
 
 impl Schedule {
-    pub fn every_fucking_minute_of_your_damn_life() -> Self {
+    pub fn every_fucking_minute_of_your_damn_life(since: Option<DateTime<Utc>>) -> Self {
         let builder = ScheduleGridBuilder::new(Europe::Rome);
         Self::Recurrent {
-            since: Utc.from_utc_datetime(&NaiveDateTime::from_timestamp_millis(0).unwrap()),
+            since: since.unwrap_or_else(|| {
+                Utc.from_utc_datetime(&NaiveDateTime::from_timestamp_millis(0).unwrap())
+            }),
             schedule: builder.build(),
         }
     }
