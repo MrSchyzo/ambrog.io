@@ -1,16 +1,14 @@
 use std::{
     num::{NonZeroU8, NonZeroUsize},
-    sync::Arc,
+    sync::{Arc, Mutex, MutexGuard},
     time::Duration,
 };
 
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Europe;
-use tokio::sync::{
-    mpsc::{channel, Receiver, Sender},
-    Mutex,
-};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::{bitmap::Bitmap, memory::transient::InMemoryStorage, schedule::ScheduleGrid};
 
@@ -45,24 +43,24 @@ pub trait ReminderCallback {
     async fn call(&self, user: u64, reminder_id: i32, message: Arc<String>);
 }
 
-pub struct Engine {
-    storage: Mutex<InMemoryStorage>,
+pub struct ReminderEngine {
+    storage: Arc<Mutex<InMemoryStorage>>,
     time_provider: Arc<dyn TimeProvider + Send + Sync>,
-    receiver: Mutex<Receiver<EngineMessage>>,
+    receiver: AsyncMutex<Receiver<EngineMessage>>,
     sender: Sender<EngineMessage>,
     callback: Arc<dyn ReminderCallback + Send + Sync>,
 }
 
-impl Engine {
+impl ReminderEngine {
     pub fn new(
         time_provider: Arc<dyn TimeProvider + Send + Sync>,
         callback: Arc<dyn ReminderCallback + Send + Sync>,
     ) -> Self {
         let (sender, receiver) = channel::<EngineMessage>(128);
         Self {
-            storage: Mutex::new(InMemoryStorage::new()),
+            storage: Arc::new(Mutex::new(InMemoryStorage::new())),
             time_provider,
-            receiver: Mutex::new(receiver),
+            receiver: AsyncMutex::new(receiver),
             sender,
             callback,
         }
@@ -74,12 +72,7 @@ impl Engine {
 
     pub async fn add(&self, def: ReminderDefinition) -> Option<i32> {
         tracing::info!("Adding definition for user {}", def.user_id);
-        let _ = self.sender.try_send(EngineMessage::WakeUp);
-        let id = self
-            .storage
-            .lock()
-            .await
-            .insert(def, &self.time_provider.now());
+        let id = self.obtain_storage().insert(def, &self.time_provider.now());
         tracing::info!("Added definition id: {:?}", id);
         let _ = self.sender.try_send(EngineMessage::WakeUp);
         id
@@ -87,20 +80,15 @@ impl Engine {
 
     pub async fn defuse(&self, user: u64, id: i32) {
         tracing::info!("Defusing reminder ({}, {})", user, id);
-        self.storage.lock().await.defuse(&user, &id);
+        self.internal_defuse(&user, &id);
         tracing::info!("Defused reminder ({}, {})", user, id);
     }
 
     pub async fn run(&self) {
         loop {
             tracing::info!("Storage fetching");
-            let reminder = match { self.storage.lock().await.dequeue_next() } {
-                None => match {
-                    tracing::info!("Waiting for reception");
-                    let x = self.receiver.lock().await.recv().await;
-                    tracing::info!("Received something!");
-                    x
-                } {
+            let reminder = match self.dequeue_next() {
+                None => match self.listen().await {
                     None | Some(EngineMessage::Stop) => return,
                     Some(EngineMessage::WakeUp) => continue,
                 },
@@ -110,7 +98,6 @@ impl Engine {
             if let Some(date) = reminder.current_tick().copied() {
                 let now = self.time_provider.now();
                 let time_to_wait = date.signed_duration_since(now).num_milliseconds().max(0) as u64;
-                let mut channel = self.receiver.lock().await;
                 tracing::info!(
                     "Waiting for reminder execution {:#?}, sleeping {:?}",
                     reminder.reminder_id(),
@@ -130,18 +117,36 @@ impl Engine {
                             }
                         });
                     }
-                    message = channel.recv() => {
+                    message = self.listen() => {
                         if let None | Some(EngineMessage::Stop) = message {return};
                     }
                 };
             }
 
             tracing::info!("Reinserting reminder {:#?}", reminder.reminder_id());
-            self.storage
-                .lock()
-                .await
-                .advance(reminder, &self.time_provider.now());
+            self.advance(reminder);
         }
+    }
+
+    fn dequeue_next(&self) -> Option<Reminder> {
+        self.obtain_storage().dequeue_next()
+    }
+
+    fn internal_defuse(&self, user_id: &u64, id: &i32) {
+        self.obtain_storage().defuse(user_id, id);
+    }
+
+    fn advance(&self, reminder: Reminder) {
+        self.obtain_storage()
+            .advance(reminder, &self.time_provider.now());
+    }
+
+    async fn listen(&self) -> Option<EngineMessage> {
+        self.receiver.lock().await.recv().await
+    }
+
+    fn obtain_storage(&self) -> MutexGuard<InMemoryStorage> {
+        self.storage.lock().unwrap()
     }
 }
 

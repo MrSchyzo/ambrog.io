@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use ambrogio_reminders::interface::{Engine, ReminderDefinition, Schedule};
+use ambrogio_reminders::interface::{ReminderDefinition, ReminderEngine, Schedule};
 use ambrogio_users::data::User;
 use async_trait::async_trait;
 use regex::Regex;
@@ -19,12 +19,12 @@ enum Command {
 
 pub struct RemindersHandler {
     telegram: Arc<dyn TelegramProxy + Send + Sync + 'static>,
-    reminder_engine: Arc<Engine>,
+    reminder_engine: Arc<ReminderEngine>,
     regex: Regex,
 }
 
 impl RemindersHandler {
-    pub fn new<Proxy>(telegram: Arc<Proxy>, engine: Arc<Engine>) -> Self
+    pub fn new<Proxy>(telegram: Arc<Proxy>, engine: Arc<ReminderEngine>) -> Self
     where
         Proxy: TelegramProxy + Send + Sync + 'static,
     {

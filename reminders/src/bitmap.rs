@@ -32,7 +32,7 @@ impl Bitmap {
             9..=16 => Self::Short(0u16),
             17..=32 => Self::Int(0u32),
             x => {
-                let v = (0..=(x / 64)).into_iter().map(|_| 0u64).collect::<Vec<_>>();
+                let v = (0..=(x / 64)).map(|_| 0u64).collect::<Vec<_>>();
                 Self::Longs(v)
             }
         }

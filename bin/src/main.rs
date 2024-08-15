@@ -5,8 +5,8 @@ mod telegram;
 mod update_listener;
 
 use ambrogio_reminders::interface::ChronoTimeProvider;
-use ambrogio_reminders::interface::Engine;
 use ambrogio_reminders::interface::ReminderCallback;
+use ambrogio_reminders::interface::ReminderEngine;
 use ambrogio_users::data::User as AmbrogioUser;
 use ambrogio_users::data::UserId as AmbrogioUserId;
 use ambrogio_users::RedisUserRepository;
@@ -42,7 +42,7 @@ static HANDLERS: OnceCell<Vec<Arc<Handler>>> = OnceCell::new();
 static TELEGRAM: OnceCell<TeloxideProxy> = OnceCell::new();
 static USERS: OnceCell<Arc<RedisUserRepository>> = OnceCell::new();
 static REDIS: OnceCell<Arc<MultiplexedConnection>> = OnceCell::new();
-static REMINDER_ENGINE: OnceCell<Arc<Engine>> = OnceCell::new();
+static REMINDER_ENGINE: OnceCell<Arc<ReminderEngine>> = OnceCell::new();
 static REMINDER_CALLBACK: OnceCell<Arc<TelegramReminderCallback>> = OnceCell::new();
 
 #[tokio::main]
@@ -214,11 +214,11 @@ async fn get_redis_connection() -> Result<Arc<MultiplexedConnection>, String> {
 
 async fn get_engine(
     telegram: Arc<dyn TelegramProxy + Send + Sync + 'static>,
-) -> Result<Arc<Engine>, String> {
+) -> Result<Arc<ReminderEngine>, String> {
     REMINDER_ENGINE
         .get_or_try_init(async {
             let callback = get_callback(telegram).await?;
-            Ok(Arc::new(Engine::new(
+            Ok(Arc::new(ReminderEngine::new(
                 Arc::new(ChronoTimeProvider {}),
                 callback,
             )))
