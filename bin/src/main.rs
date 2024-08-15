@@ -79,7 +79,12 @@ async fn main() {
         }
     });
 
-    greet_master(&bot, super_user_id).await.unwrap();
+    greet_master(&bot, super_user_id)
+        .await
+        .inspect_err(|e|
+            tracing::error!("Unable to greet master {super_user_id}: {e}. Perhaps user has never reached out to bot {bot:?}?")
+        )
+        .unwrap();
 
     let elapsed = SystemTime::now()
         .duration_since(start)

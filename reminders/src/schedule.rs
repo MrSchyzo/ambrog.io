@@ -63,27 +63,10 @@ impl<Tz: TimeZone> ScheduleGrid<Tz> {
             timezone,
         }
     }
-    /*
-    1965 0 5
-    1966 4 1
-    1967 3 2
-    1968 2 3
-    1969 1 4
-    1970 0 5
-    1971 4 1
-    1972 3 2
-    1973 2 3
-    1974 1 4
-    1975 0 5
-    1976
-    1977
-    1978
-    1979
-     */
+
     pub fn next_scheduled_after(&self, now: &DateTime<Utc>) -> Option<DateTime<Utc>> {
         let next_minute = &now.checked_add_signed(Duration::minutes(1)).unwrap();
         let now = Self::truncate_to_minute(&next_minute.with_timezone(&self.timezone));
-        tracing::info!("Next scheduled after: {now:#?}");
         let current_year = now.year();
         let year_start = self.year_start as i32;
         let cadence = self.year_cadence.get() as i32;
@@ -112,7 +95,6 @@ impl<Tz: TimeZone> ScheduleGrid<Tz> {
     }
 
     fn find_month(&self, now: &DateTime<Tz>) -> Option<DateTime<Tz>> {
-        tracing::info!("Find month: {now:#?}");
         let current_month = now.month0() as usize;
         if self.months_of_year.get(current_month) {
             if let d @ Some(_) = self.find_day(now) {
@@ -131,8 +113,6 @@ impl<Tz: TimeZone> ScheduleGrid<Tz> {
     }
 
     fn find_day(&self, now: &DateTime<Tz>) -> Option<DateTime<Tz>> {
-        tracing::info!("Find day: {now:#?}");
-
         let current_day = now.day0() as usize;
         let current_weekday = now.weekday().num_days_from_monday() as usize;
         let weekday_occurrance = Self::weekday_occurrance(now);
@@ -168,8 +148,6 @@ impl<Tz: TimeZone> ScheduleGrid<Tz> {
     }
 
     fn find_hour(&self, now: &DateTime<Tz>) -> Option<DateTime<Tz>> {
-        tracing::info!("Find hour: {now:#?}");
-
         let current_hour = now.hour() as usize;
         if self.hours.get(current_hour) {
             if let d @ Some(_) = self.find_minute(now) {
@@ -188,8 +166,6 @@ impl<Tz: TimeZone> ScheduleGrid<Tz> {
     }
 
     fn find_minute(&self, now: &DateTime<Tz>) -> Option<DateTime<Tz>> {
-        tracing::info!("Find minute: {now:#?}");
-
         let current_minute = now.minute() as usize;
         if self.minutes.get(current_minute) {
             return Some(now.clone());

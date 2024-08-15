@@ -84,21 +84,18 @@ impl InMemoryStorage {
     }
 
     pub fn insert(&mut self, definition: ReminderDefinition, now: &DateTime<Utc>) -> Option<i32> {
-        tracing::info!("Insert for user {:#?}", definition.user_id());
         definition
             .next_tick(now)
             .map(|d| self.internal_insert_new(definition, d))
     }
 
     pub fn dequeue_next(&mut self) -> Option<Reminder> {
-        tracing::info!("DEQUEUE");
         let x = self
             .queue
             .pop()
             .and_then(|reminder| self.get_reminder(&reminder.user_id, &reminder.id))
             .map(|rem| {
                 let (user_id, id) = rem.reminder_id();
-                tracing::info!("Acquired lock {:#?}", rem.reminder_id());
                 Reminder::new(
                     user_id,
                     id,
@@ -106,7 +103,6 @@ impl InMemoryStorage {
                     rem.definition.message(),
                 )
             });
-        tracing::info!("DEQUEUED");
         x
     }
 
@@ -151,7 +147,6 @@ impl InMemoryStorage {
     }
 
     fn internal_insert_new(&mut self, definition: ReminderDefinition, now: DateTime<Utc>) -> i32 {
-        tracing::info!("Internal insertion");
         let map = self
             .user_reminder_lookup
             .entry(definition.user_id())
@@ -181,7 +176,6 @@ impl InMemoryStorage {
     }
 
     fn get_reminder(&self, user_id: &u64, id: &i32) -> Option<MutexGuard<ReminderState>> {
-        tracing::info!("Get reminder ({}, {})", user_id, id);
         self.user_reminder_lookup
             .get(user_id)
             .and_then(|reminders| reminders.get(id))
@@ -189,7 +183,6 @@ impl InMemoryStorage {
     }
 
     fn remove_reminder(&mut self, user_id: &u64, id: &i32) -> Option<Mutex<ReminderState>> {
-        tracing::info!("Remove reminder ({}, {})", user_id, id);
         self.user_reminder_lookup
             .get_mut(user_id)
             .and_then(|reminders| reminders.remove(id))
