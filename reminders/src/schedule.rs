@@ -1,11 +1,12 @@
 use super::bitmap::Bitmap;
 use std::num::{NonZeroU8, NonZeroUsize};
 
-use chrono::{DateTime, Datelike, TimeZone, Timelike, Utc};
+use chrono::{DateTime, Datelike, Duration, TimeZone, Timelike, Utc};
 
 pub struct ScheduleGrid<Tz: TimeZone> {
     minutes: Bitmap,
     hours: Bitmap,
+    weeks_of_month: Bitmap,
     days_of_month: Bitmap,
     days_of_week: Bitmap,
     months_of_year: Bitmap,
@@ -15,9 +16,10 @@ pub struct ScheduleGrid<Tz: TimeZone> {
 }
 
 impl<Tz: TimeZone> ScheduleGrid<Tz> {
-    pub fn new(
+    pub fn explicitly_new(
         minutes: Vec<usize>,
         hours: Vec<usize>,
+        weeks_of_month: Vec<usize>,
         days_of_month: Vec<usize>,
         days_of_week: Vec<usize>,
         months_of_year: Vec<usize>,
@@ -26,27 +28,74 @@ impl<Tz: TimeZone> ScheduleGrid<Tz> {
         timezone: Tz,
     ) -> Self {
         Self {
-            minutes: Bitmap::new_truncated(NonZeroUsize::new(60).unwrap(), minutes),
-            hours: Bitmap::new_truncated(NonZeroUsize::new(60).unwrap(), hours),
-            days_of_month: Bitmap::new_truncated(NonZeroUsize::new(31).unwrap(), days_of_month),
-            days_of_week: Bitmap::new_truncated(NonZeroUsize::new(7).unwrap(), days_of_week),
-            months_of_year: Bitmap::new_truncated(NonZeroUsize::new(12).unwrap(), months_of_year),
+            minutes: Bitmap::explicitly_set(NonZeroUsize::new(60).unwrap(), minutes),
+            hours: Bitmap::explicitly_set(NonZeroUsize::new(60).unwrap(), hours),
+            weeks_of_month: Bitmap::explicitly_set(NonZeroUsize::new(5).unwrap(), weeks_of_month),
+            days_of_month: Bitmap::explicitly_set(NonZeroUsize::new(31).unwrap(), days_of_month),
+            days_of_week: Bitmap::explicitly_set(NonZeroUsize::new(7).unwrap(), days_of_week),
+            months_of_year: Bitmap::explicitly_set(NonZeroUsize::new(12).unwrap(), months_of_year),
             year_cadence,
             year_start,
             timezone,
         }
     }
 
-    fn next_scheduled_after(&self, now: &DateTime<Utc>) -> Option<DateTime<Utc>> {
-        let now = Self::truncate_to_minute(&now.with_timezone(&self.timezone));
+    pub fn new(
+        minutes: Bitmap,
+        hours: Bitmap,
+        weeks_of_month: Bitmap,
+        days_of_month: Bitmap,
+        days_of_week: Bitmap,
+        months_of_year: Bitmap,
+        year_cadence: NonZeroU8,
+        year_start: u32,
+        timezone: Tz,
+    ) -> Self {
+        Self {
+            minutes,
+            hours,
+            weeks_of_month,
+            days_of_month,
+            days_of_week,
+            months_of_year,
+            year_cadence,
+            year_start,
+            timezone,
+        }
+    }
+    /*
+    1965 0 5
+    1966 4 1
+    1967 3 2
+    1968 2 3
+    1969 1 4
+    1970 0 5
+    1971 4 1
+    1972 3 2
+    1973 2 3
+    1974 1 4
+    1975 0 5
+    1976
+    1977
+    1978
+    1979
+     */
+    pub fn next_scheduled_after(&self, now: &DateTime<Utc>) -> Option<DateTime<Utc>> {
+        let next_minute = &now.checked_add_signed(Duration::minutes(1)).unwrap();
+        let now = Self::truncate_to_minute(&next_minute.with_timezone(&self.timezone));
+        tracing::info!("Next scheduled after: {now:#?}");
         let current_year = now.year();
         let year_start = self.year_start as i32;
         let cadence = self.year_cadence.get() as i32;
-        let year_skip = cadence + ((current_year - (year_start)) % cadence);
+        let year_skip = match (current_year - year_start) % cadence {
+            ..=-1 => year_start - current_year,
+            0 => 0,
+            x @ 1.. => cadence - x,
+        };
 
         let mut current_date = match year_skip {
             0 => now,
-            _ => Self::set_year(&now, (current_year + year_skip).max(year_start)),
+            _ => Self::set_year(&now, (current_year + year_skip).min(year_start)),
         };
 
         for _ in 0..50 {
@@ -63,6 +112,7 @@ impl<Tz: TimeZone> ScheduleGrid<Tz> {
     }
 
     fn find_month(&self, now: &DateTime<Tz>) -> Option<DateTime<Tz>> {
+        tracing::info!("Find month: {now:#?}");
         let current_month = now.month0() as usize;
         if self.months_of_year.get(current_month) {
             if let d @ Some(_) = self.find_day(now) {
@@ -81,9 +131,15 @@ impl<Tz: TimeZone> ScheduleGrid<Tz> {
     }
 
     fn find_day(&self, now: &DateTime<Tz>) -> Option<DateTime<Tz>> {
+        tracing::info!("Find day: {now:#?}");
+
         let current_day = now.day0() as usize;
-        let current_weekday = (now.weekday().number_from_monday() - 1) as usize;
-        if self.days_of_month.get(current_day) && self.days_of_week.get(current_weekday) {
+        let current_weekday = now.weekday().num_days_from_monday() as usize;
+        let weekday_occurrance = Self::weekday_occurrance(now);
+        if self.days_of_month.get(current_day)
+            && self.days_of_week.get(current_weekday)
+            && self.weeks_of_month.get(weekday_occurrance)
+        {
             if let d @ Some(_) = self.find_hour(now) {
                 return d;
             }
@@ -95,9 +151,10 @@ impl<Tz: TimeZone> ScheduleGrid<Tz> {
             } else {
                 continue;
             };
-            if !self
+            if !(self
                 .days_of_week
-                .get((now.weekday().number_from_monday() - 1) as usize)
+                .get(now.weekday().num_days_from_monday() as usize)
+                && self.weeks_of_month.get(Self::weekday_occurrance(now)))
             {
                 continue;
             }
@@ -111,6 +168,8 @@ impl<Tz: TimeZone> ScheduleGrid<Tz> {
     }
 
     fn find_hour(&self, now: &DateTime<Tz>) -> Option<DateTime<Tz>> {
+        tracing::info!("Find hour: {now:#?}");
+
         let current_hour = now.hour() as usize;
         if self.hours.get(current_hour) {
             if let d @ Some(_) = self.find_minute(now) {
@@ -129,6 +188,8 @@ impl<Tz: TimeZone> ScheduleGrid<Tz> {
     }
 
     fn find_minute(&self, now: &DateTime<Tz>) -> Option<DateTime<Tz>> {
+        tracing::info!("Find minute: {now:#?}");
+
         let current_minute = now.minute() as usize;
         if self.minutes.get(current_minute) {
             return Some(now.clone());
@@ -170,59 +231,8 @@ impl<Tz: TimeZone> ScheduleGrid<Tz> {
             .and_then(|dt| dt.with_second(0))
             .unwrap()
     }
-}
 
-pub trait UtcDateScheduler {
-    fn next_scheduled_at(&self, now: &DateTime<Utc>) -> Option<DateTime<Utc>>;
-}
-
-impl<Tz: TimeZone> UtcDateScheduler for ScheduleGrid<Tz> {
-    fn next_scheduled_at(&self, now: &DateTime<Utc>) -> Option<DateTime<Utc>> {
-        self.next_scheduled_after(now)
-    }
-}
-
-pub enum Schedule {
-    Once {
-        when: DateTime<Utc>,
-    },
-    Recurrent {
-        since: DateTime<Utc>,
-        schedule: Box<dyn UtcDateScheduler>,
-    },
-    RecurrentUntil {
-        since: DateTime<Utc>,
-        until: DateTime<Utc>,
-        schedule: Box<dyn UtcDateScheduler>,
-    },
-}
-
-impl Schedule {
-    pub fn next_tick(&self, now: &DateTime<Utc>) -> Option<DateTime<Utc>> {
-        match self {
-            Self::Once { when } if now < when => Some(when.with_timezone(&Utc)),
-            Self::Recurrent { since, schedule } => {
-                if now < since {
-                    Some(since.with_timezone(&Utc))
-                } else {
-                    schedule.next_scheduled_at(now)
-                }
-            }
-            Self::RecurrentUntil {
-                since,
-                until,
-                schedule,
-            } => {
-                if now < since {
-                    Some(since.with_timezone(&Utc))
-                } else {
-                    match schedule.next_scheduled_at(now) {
-                        x @ Some(d) if d < *until => x,
-                        _ => None,
-                    }
-                }
-            }
-            _ => None,
-        }
+    fn weekday_occurrance(now: &DateTime<Tz>) -> usize {
+        (now.day0() / 7) as usize
     }
 }

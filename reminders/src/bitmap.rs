@@ -17,7 +17,7 @@ impl<'a> Iterator for BitmapIterator<'a> {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 pub enum Bitmap {
     Byte(u8),
     Short(u16),
@@ -31,22 +31,30 @@ impl Bitmap {
             1..=8 => Self::Byte(0u8),
             9..=16 => Self::Short(0u16),
             17..=32 => Self::Int(0u32),
-            x => Self::Longs(Vec::with_capacity(x / 64 + 1)),
+            x => {
+                let v = (0..=(x / 64)).into_iter().map(|_| 0u64).collect::<Vec<_>>();
+                Self::Longs(v)
+            }
         }
     }
 
-    pub fn new_truncated(size: NonZeroUsize, bits: Vec<usize>) -> Self {
+    pub fn explicitly_set(size: NonZeroUsize, bits: Vec<usize>) -> Self {
         let mut result = Self::of_size(size);
         for &bit in bits.iter() {
             result.set(bit)
         }
-        if bits.is_empty() {
-            result.set(0usize);
+        result
+    }
+
+    pub fn all_set(size: NonZeroUsize) -> Self {
+        let mut result = Self::of_size(size);
+        for i in 0..size.get() {
+            result.set(i)
         }
         result
     }
 
-    pub fn set(&mut self, position: usize) {
+    fn set(&mut self, position: usize) {
         match self {
             Bitmap::Byte(ref mut x) => *x |= 1u8 << position,
             Bitmap::Short(ref mut x) => *x |= 1u16 << position,
@@ -79,7 +87,7 @@ impl Bitmap {
         }
     }
 
-    pub fn next_set(&self, from: usize) -> Option<usize> {
+    fn next_set(&self, from: usize) -> Option<usize> {
         (from + 1..self.len()).find(|&i| self.get(i))
     }
 

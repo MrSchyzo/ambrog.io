@@ -1,6 +1,7 @@
 pub mod echo;
 pub mod ferrero;
 pub mod forecast;
+pub mod reminders;
 pub mod shutdown;
 pub mod users;
 pub mod youtube;

@@ -31,13 +31,14 @@ name = "ambrogio_bin"
 version = "0.8.6"
 dependencies = [
  "ambrogio_core",
+ "ambrogio_reminders",
  "ambrogio_users",
  "async-once-cell",
  "async-process",
  "async-trait",
  "axum",
  "chrono",
- "chrono-tz 0.6.3",
+ "chrono-tz 0.9.0",
  "derive_more",
  "itertools 0.11.0",
  "log",
@@ -81,6 +82,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -2030,9 +2032,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.11.1"
+version = "1.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "942b4a808e05215192e39f4ab80813e599068285906cc91aa64f923db842bd5a"
+checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
 
 [[package]]
 name = "socket2"

@@ -10,8 +10,9 @@ version = "0.8.6"
 open_meteo = { path = "../open_meteo" }
 ambrogio_users = { path = "../users" }
 ambrogio_core = { path = "../core" }
+ambrogio_reminders = { path = "../reminders" }
 chrono = { version = "0.4" }
-chrono-tz = { version = "0.6" }
+chrono-tz = { version = "0.9" }
 derive_more = "0.99"
 log = "0.4"
 pretty_env_logger = "0.4"
