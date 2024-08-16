@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use ambrogio_reminders::interface::{try_interpret_definition, ReminderDefinition, ReminderEngine};
+use ambrogio_reminders::interface::{try_parse, ReminderDefinition, ReminderEngine};
 use ambrogio_users::data::User;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -82,15 +82,20 @@ fn into_command(text: &str, user: User) -> Command {
     let arguments: Vec<&str> = text.splitn(2, '\n').filter(|txt| !txt.is_empty()).collect();
     tracing::info!("Arguments: {:?}", arguments);
     tracing::info!("Text: {}", text);
-    let tokens = arguments[0]
+    let lower_tokens = arguments[0]
         .split(' ')
         .filter(|e| !e.is_empty())
         .map(|e| e.trim_matches(&[',', ':', '.', '!', '\n']))
-        .collect::<Vec<&str>>();
-    match tokens.first().map(|x| x.to_lowercase()) {
+        .flat_map(|s| s.split('\''))
+        .map(|s| s.to_lowercase())
+        .collect::<Vec<String>>();
+
+    let tokens = lower_tokens.iter().map(|s| s.as_str()).collect::<Vec<_>>();
+
+    match tokens.first().copied() {
         Some(x) if x == "promemoria" => into_promemoria(tokens, user),
         Some(x) if x == "ricordami" && arguments.len() > 1 => {
-            into_ricordami(tokens, arguments[1], user)
+            into_ricordami(tokens, arguments[1].trim_start_matches('\n'), user)
         }
         Some(x) if x == "scordati" => into_scordati(tokens, user),
         x => {
@@ -125,7 +130,7 @@ fn into_scordati(tokens: Vec<&str>, user: User) -> Command {
 }
 
 fn into_ricordami(tokens: Vec<&str>, message: &str, user: User) -> Command {
-    try_interpret_definition(tokens, message, &Utc::now())
+    try_parse(tokens, &Utc::now())
         .map(|schedule| ReminderDefinition::new(schedule, user.id().0, message.to_owned()))
         .map(Command::new_create)
         .unwrap_or_else(ricordami_help)
