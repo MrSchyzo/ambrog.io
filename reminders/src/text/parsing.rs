@@ -185,8 +185,22 @@ fn advance_time<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
     when: DateTime<TZ>,
     tokens: &mut Peekable<T>,
 ) -> DateTime<TZ> {
-    tracing::warn!("TODO: advance_time");
-    when
+    tokens
+        .peek()
+        .and_then(|s| s.parse::<i32>().ok())
+        .and_then(|quantity| {
+            tokens.next();
+            tokens
+                .peek()
+                .and_then(|unit| DURATION_UNITS.get(*unit))
+                .copied()
+                .map(|dur| {
+                    tokens.next();
+                    dur * quantity
+                })
+        })
+        .map(|duration| when.clone() + duration)
+        .unwrap_or(when)
 }
 
 fn configure_weekday<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
