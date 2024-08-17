@@ -1,8 +1,7 @@
 use std::{collections::HashMap, iter::Peekable};
 
 use chrono::{
-    DateTime, Datelike, Duration, Month, NaiveDate, NaiveTime, TimeZone, Timelike, Utc,
-    Weekday,
+    DateTime, Datelike, Duration, Month, NaiveDate, NaiveTime, TimeZone, Timelike, Utc, Weekday,
 };
 use chrono_tz::{Europe, Tz};
 use lazy_static::lazy_static;
@@ -176,12 +175,13 @@ fn build_once<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
     mut tokens: Peekable<T>,
     now: &DateTime<TZ>,
 ) -> Option<Schedule> {
+    tracing::info!("BUILD ONCE");
     let mut when = now.clone();
     while let Some(token) = tokens.next() {
         when = match token {
             "tra" => advance_time(when, &mut tokens),
-            "alle" => at_time(when, &mut tokens),
-            "il" | "lo" | "l" => at_date(when, &mut tokens),
+            "alle" => at_time(now, when, &mut tokens),
+            "il" | "lo" | "l" => at_date(now, when, &mut tokens),
             "a" | "ad" => at_month(when, &mut tokens),
             "nel" => at_beginning_of_year(when, &mut tokens),
             x if WEEKDAYS.contains_key(x) => configure_weekday(when, &mut tokens),
@@ -229,6 +229,7 @@ fn configure_weekday<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
 }
 
 fn at_date<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
+    lower_bound: &DateTime<TZ>,
     when: DateTime<TZ>,
     tokens: &mut Peekable<T>,
 ) -> DateTime<TZ> {
@@ -240,19 +241,27 @@ fn at_date<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
         return d;
     }
 
-    let mut ret = match try_parse_day(tokens) {
+    let day = match try_parse_day(tokens) {
         None => return when,
-        day => try_set_day(day, when),
+        day => day,
     };
 
-    ret = match try_parse_month(tokens).map(|m| m.number_from_month()) {
-        None => return ret,
-        month => try_set_month(month, ret),
+    let month = match try_parse_month(tokens).map(|m| m.number_from_month()) {
+        None => return try_set_day(day, when, lower_bound),
+        month => month,
     };
 
     match try_parse_year(tokens) {
-        None => ret,
-        Some(year) => set_year(year, ret),
+        None => try_set_month(month, when.clone(), lower_bound)
+            .with_day(1)
+            .map(|d| try_set_day(day, d, lower_bound))
+            .unwrap_or(when),
+        Some(year) => set_year(year, when.clone())
+            .with_month(1)
+            .map(|d| try_set_month(month, d, lower_bound))
+            .and_then(|d| d.with_day(1))
+            .map(|d| try_set_day(day, d, lower_bound))
+            .unwrap_or(when.clone()),
     }
 }
 
@@ -280,10 +289,11 @@ fn at_beginning_of_year<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
 }
 
 fn at_time<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
+    lower_bound: &DateTime<TZ>,
     when: DateTime<TZ>,
     tokens: &mut Peekable<T>,
 ) -> DateTime<TZ> {
-    try_set_time(try_parse_time(tokens).as_ref(), when)
+    try_set_time(try_parse_time(tokens).as_ref(), when, lower_bound)
 }
 
 fn at_year<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
@@ -295,29 +305,41 @@ fn at_year<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
         .unwrap_or(when)
 }
 
-fn try_set_time<TZ: TimeZone>(time: Option<&NaiveTime>, when: DateTime<TZ>) -> DateTime<TZ> {
+fn try_set_time<TZ: TimeZone>(
+    time: Option<&NaiveTime>,
+    when: DateTime<TZ>,
+    lower_bound: &DateTime<TZ>,
+) -> DateTime<TZ> {
     time.and_then(|time| {
         set_time(time, &when)
-            .filter(|date| *date >= when)
+            .filter(|date| *date >= *lower_bound)
             .or_else(|| set_time(time, &(when.clone() + Duration::hours(24))))
     })
     .unwrap_or(when)
 }
 
-fn try_set_day<TZ: TimeZone>(day: Option<u32>, when: DateTime<TZ>) -> DateTime<TZ> {
+fn try_set_day<TZ: TimeZone>(
+    day: Option<u32>,
+    when: DateTime<TZ>,
+    lower_bound: &DateTime<TZ>,
+) -> DateTime<TZ> {
     day.and_then(|day| {
         when.with_day(day)
-            .filter(|date| *date >= when)
+            .filter(|date| *date >= *lower_bound)
             .or_else(|| next_month(&when).with_day(day))
     })
     .unwrap_or(when)
 }
 
-fn try_set_month<TZ: TimeZone>(month: Option<u32>, when: DateTime<TZ>) -> DateTime<TZ> {
+fn try_set_month<TZ: TimeZone>(
+    month: Option<u32>,
+    when: DateTime<TZ>,
+    lower_bound: &DateTime<TZ>,
+) -> DateTime<TZ> {
     month
         .and_then(|month| {
             when.with_month(month)
-                .filter(|date| *date >= when)
+                .filter(|date| *date >= *lower_bound)
                 .or_else(|| next_year(&when).with_month(month))
         })
         .unwrap_or(when)
@@ -401,9 +423,13 @@ fn custom_parse_time<'a, T: Iterator<Item = &'a str>>(
     };
 
     tokens
-        .peek().copied()
+        .peek()
+        .copied()
         .filter(|e| *e != "e")
-        .or_else(|| tokens.next())
+        .or_else(|| {
+            tokens.next();
+            tokens.peek().copied()
+        })
         .and_then(|m| m.parse::<u32>().ok())
         .inspect(|_| {
             tokens.next();
@@ -461,4 +487,130 @@ fn days_of_year(year: i32) -> i64 {
     first_day_of_next_year
         .signed_duration_since(first_day_of_year)
         .num_days()
+}
+
+#[test]
+fn test_ricordami_il_18() {
+    assert_schedule_once(
+        "Ricordami il 18",
+        "2024-08-17T20:58:00+02:00",
+        "2024-08-18T20:58:00+02:00",
+    );
+}
+
+#[test]
+fn test_ricordami_il_18_alle_00_01() {
+    assert_schedule_once(
+        "Ricordami il 18 alle 00:01",
+        "2024-08-17T20:58:00+02:00",
+        "2024-08-18T00:01:00+02:00",
+    );
+}
+
+#[test]
+fn test_ricordami_alle_2_e_59() {
+    assert_schedule_once(
+        "Ricordami alle 2 e 59",
+        "2024-08-17T20:58:00+02:00",
+        "2024-08-18T02:59:00+02:00",
+    );
+}
+
+#[test]
+fn test_ricordami_domenica_alle_00() {
+    assert_schedule_once(
+        "Ricordami domenica alle 00",
+        "2024-08-17T20:58:00+02:00",
+        "2024-08-18T00:00:00+02:00",
+    );
+}
+
+#[test]
+fn test_ricordami_nel_2025() {
+    assert_schedule_once(
+        "Ricordami nel 2025",
+        "2024-08-17T20:58:00+02:00",
+        "2025-01-01T20:58:00+01:00",
+    );
+}
+
+#[test]
+fn test_ricordami_il_12_maggio_2025() {
+    assert_schedule_once(
+        "Ricordami il 12 maggio 2025",
+        "2024-08-17T20:58:00+02:00",
+        "2025-05-12T20:58:00+02:00",
+    );
+}
+
+#[test]
+fn test_ricordami_l_1() {
+    assert_schedule_once(
+        "Ricordami l 1",
+        "2024-08-17T20:58:00+02:00",
+        "2024-09-01T20:58:00+02:00",
+    );
+}
+
+#[test]
+fn test_ricordami_ad_agosto_2025_alle_02_20() {
+    assert_schedule_once(
+        "Ricordami ad agosto 2025 alle 02:20",
+        "2024-08-17T20:58:00+02:00",
+        "2025-08-17T02:20:00+02:00",
+    );
+}
+
+#[test]
+fn test_ricordami_il_12_05_2025_alle_13_e_20() {
+    assert_schedule_once(
+        "Ricordami il 12/05/2025 alle 13 e 20",
+        "2024-08-17T20:58:00+02:00",
+        "2025-05-12T13:20:00+02:00",
+    );
+}
+
+#[test]
+fn test_ricordami_il_3_dicembre_alle_13_e_20() {
+    assert_schedule_once(
+        "Ricordami il 3 dicembre alle 13 e 20",
+        "2024-08-17T20:58:00+02:00",
+        "2024-12-03T13:20:00+01:00",
+    );
+}
+
+#[test]
+fn test_ricordami_per_domani_does_not_work() {
+    assert_schedule_once_none("Ricordami per domani", "2024-08-17T20:58:00+02:00");
+}
+
+#[cfg(test)]
+fn assert_schedule_once(msg: &str, date_str: &str, expected_when_str: &str) {
+    assert_eq_schedule(
+        msg,
+        try_parse(
+            msg.split(' ').collect(),
+            &date_str.parse::<DateTime<Utc>>().unwrap(),
+        ),
+        Some(Schedule::Once {
+            when: expected_when_str.parse::<DateTime<Utc>>().unwrap(),
+        }),
+    )
+}
+
+#[cfg(test)]
+fn assert_schedule_once_none(msg: &str, date_str: &str) {
+    assert_eq_schedule(
+        msg,
+        try_parse(
+            msg.split(' ').collect(),
+            &date_str.parse::<DateTime<Utc>>().unwrap(),
+        ),
+        None,
+    )
+}
+
+#[cfg(test)]
+fn assert_eq_schedule(msg: &str, result: Option<Schedule>, expected: Option<Schedule>) {
+    assert_eq!(expected, result, "When parsing \"{msg}\"");
 }

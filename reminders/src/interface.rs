@@ -246,6 +246,7 @@ impl ReminderDefinition {
     }
 }
 
+#[cfg_attr(test, derive(Eq, PartialEq))]
 #[derive(Clone, Debug)]
 pub enum Schedule {
     Once {

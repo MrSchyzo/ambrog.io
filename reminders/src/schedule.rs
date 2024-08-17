@@ -6,6 +6,7 @@ use std::num::{NonZeroU8, NonZeroUsize};
 use chrono::{DateTime, Datelike, Duration, Timelike, Utc};
 use chrono_tz::Tz;
 
+#[cfg_attr(test, derive(Eq, PartialEq))]
 #[derive(Clone, Debug)]
 pub struct ScheduleGrid {
     minutes: Bitmap,
