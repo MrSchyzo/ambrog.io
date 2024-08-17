@@ -21,10 +21,15 @@ lazy_static! {
     static ref WEEKDAYS: HashMap<String, Weekday> = {
         let mut lookup = HashMap::with_capacity(7);
         lookup.insert("lunedì".to_owned(), Weekday::Mon);
+        lookup.insert("lunedi".to_owned(), Weekday::Mon);
         lookup.insert("martedì".to_owned(), Weekday::Tue);
+        lookup.insert("martedi".to_owned(), Weekday::Tue);
         lookup.insert("mercoledì".to_owned(), Weekday::Wed);
+        lookup.insert("mercoledi".to_owned(), Weekday::Wed);
         lookup.insert("giovedì".to_owned(), Weekday::Thu);
+        lookup.insert("giovedi".to_owned(), Weekday::Thu);
         lookup.insert("venerdì".to_owned(), Weekday::Fri);
+        lookup.insert("venerdi".to_owned(), Weekday::Fri);
         lookup.insert("sabato".to_owned(), Weekday::Sat);
         lookup.insert("domenica".to_owned(), Weekday::Sun);
         lookup
@@ -216,6 +221,12 @@ fn advance_time<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
                 })
         })
         .map(|duration| when.clone() + duration)
+        .map(|d| {
+            if let Some("e") = tokens.peek().copied() {
+                tokens.next();
+            };
+            advance_time(d, tokens)
+        })
         .unwrap_or(when)
 }
 
@@ -499,6 +510,15 @@ fn test_ricordami_il_18() {
 }
 
 #[test]
+fn test_ricordami_tra_60_secondi_2_settimane_e_1_minuto() {
+    assert_schedule_once(
+        "Ricordami tra 60 secondi 2 settimane e 1 minuto",
+        "2024-08-17T20:58:00+02:00",
+        "2024-08-31T21:00:00+02:00",
+    );
+}
+
+#[test]
 fn test_ricordami_il_18_alle_00_01() {
     assert_schedule_once(
         "Ricordami il 18 alle 00:01",
@@ -517,9 +537,9 @@ fn test_ricordami_alle_2_e_59() {
 }
 
 #[test]
-fn test_ricordami_domenica_alle_00() {
+fn test_ricordami_venerdì_alle_00() {
     assert_schedule_once(
-        "Ricordami domenica alle 00",
+        "Ricordami venerdì alle 00",
         "2024-08-17T20:58:00+02:00",
         "2024-08-18T00:00:00+02:00",
     );
