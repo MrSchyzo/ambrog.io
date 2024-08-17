@@ -246,7 +246,7 @@ impl ReminderDefinition {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Schedule {
     Once {
         when: DateTime<Utc>,

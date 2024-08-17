@@ -1,12 +1,24 @@
 use std::{collections::HashMap, iter::Peekable};
 
-use chrono::{DateTime, Days, Duration, Month, NaiveTime, TimeZone, Timelike, Utc, Weekday};
+use chrono::{
+    DateTime, Datelike, Duration, Month, NaiveDate, NaiveTime, TimeZone, Timelike, Utc,
+    Weekday,
+};
 use chrono_tz::{Europe, Tz};
 use lazy_static::lazy_static;
 
 use crate::interface::Schedule;
 
 lazy_static! {
+    static ref TIME_FORMATS: Vec<String> = vec![
+        "%H:%M:%S".to_owned(),
+        "%H:%M".to_owned(),
+    ];
+    static ref DATE_FORMATS: Vec<String> = vec![
+        "%d.%m.%Y".to_owned(),
+        "%d-%m-%Y".to_owned(),
+        "%d/%m/%Y".to_owned(),
+    ];
     static ref WEEKDAYS: HashMap<String, Weekday> = {
         let mut lookup = HashMap::with_capacity(7);
         lookup.insert("lunedì".to_owned(), Weekday::Mon);
@@ -168,17 +180,21 @@ fn build_once<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
     while let Some(token) = tokens.next() {
         when = match token {
             "tra" => advance_time(when, &mut tokens),
-            "alle" => configure_time(when, &mut tokens),
-            "il" | "lo" | "l" => configure_date(when, &mut tokens),
-            "a" | "ad" => configure_month(when, &mut tokens),
-            "nel" => configure_year(when, &mut tokens),
+            "alle" => at_time(when, &mut tokens),
+            "il" | "lo" | "l" => at_date(when, &mut tokens),
+            "a" | "ad" => at_month(when, &mut tokens),
+            "nel" => at_beginning_of_year(when, &mut tokens),
             x if WEEKDAYS.contains_key(x) => configure_weekday(when, &mut tokens),
             _ => when,
         };
     }
-    Some(Schedule::Once {
+    let schedule = Schedule::Once {
         when: when.with_timezone(&Utc),
-    })
+    };
+
+    tracing::info!("Computed: {:#?}", schedule);
+
+    Some(schedule)
 }
 
 fn advance_time<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
@@ -207,87 +223,242 @@ fn configure_weekday<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
     when: DateTime<TZ>,
     tokens: &mut Peekable<T>,
 ) -> DateTime<TZ> {
-    tracing::warn!("TODO: configure_weekday");
-    when
+    try_parse_weekday(tokens)
+        .map(|weekday| next_weekday(*weekday, when.clone()))
+        .unwrap_or(when)
 }
 
-fn configure_date<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
+fn at_date<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
     when: DateTime<TZ>,
     tokens: &mut Peekable<T>,
 ) -> DateTime<TZ> {
-    tracing::warn!("TODO: configure_date");
-    when
+    if let Some(d) = parse_date(tokens).and_then(|date| {
+        when.with_year(date.year_ce().1 as i32)
+            .and_then(|d| d.with_month0(date.month0()))
+            .and_then(|d| d.with_day0(date.day0()))
+    }) {
+        return d;
+    }
+
+    let mut ret = match try_parse_day(tokens) {
+        None => return when,
+        day => try_set_day(day, when),
+    };
+
+    ret = match try_parse_month(tokens).map(|m| m.number_from_month()) {
+        None => return ret,
+        month => try_set_month(month, ret),
+    };
+
+    match try_parse_year(tokens) {
+        None => ret,
+        Some(year) => set_year(year, ret),
+    }
 }
 
-fn configure_month<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
+fn at_month<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
     when: DateTime<TZ>,
     tokens: &mut Peekable<T>,
 ) -> DateTime<TZ> {
-    tracing::warn!("TODO: configure_month");
-    when
+    try_parse_month(tokens)
+        .and_then(|month| when.with_month(month.number_from_month()))
+        .map(|date| at_year(date, tokens))
+        .unwrap_or(when)
 }
 
-fn configure_year<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
+fn at_beginning_of_year<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
     when: DateTime<TZ>,
     tokens: &mut Peekable<T>,
 ) -> DateTime<TZ> {
-    tracing::warn!("TODO: configure_year");
-    when
+    try_parse_year(tokens)
+        .and_then(|year| {
+            when.with_month0(0)
+                .and_then(|d| d.with_day0(0))
+                .map(|d| set_year(year, d))
+        })
+        .unwrap_or(when)
 }
 
-fn configure_time<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
+fn at_time<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
     when: DateTime<TZ>,
     tokens: &mut Peekable<T>,
 ) -> DateTime<TZ> {
-    try_set_time(try_parse_time(tokens), when)
+    try_set_time(try_parse_time(tokens).as_ref(), when)
 }
 
-fn try_set_time<TZ: TimeZone>(time: Option<NaiveTime>, when: DateTime<TZ>) -> DateTime<TZ> {
+fn at_year<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
+    when: DateTime<TZ>,
+    tokens: &mut Peekable<T>,
+) -> DateTime<TZ> {
+    try_parse_year(tokens)
+        .and_then(|year| when.with_year(year))
+        .unwrap_or(when)
+}
+
+fn try_set_time<TZ: TimeZone>(time: Option<&NaiveTime>, when: DateTime<TZ>) -> DateTime<TZ> {
     time.and_then(|time| {
-        when.with_second(time.second())
-            .and_then(|d| d.with_minute(time.minute()))
-            .and_then(|d| d.with_hour(time.hour()))
-    })
-    .and_then(|date| {
-        if date < when {
-            date.checked_add_days(Days::new(1))
-        } else {
-            Some(date)
-        }
+        set_time(time, &when)
+            .filter(|date| *date >= when)
+            .or_else(|| set_time(time, &(when.clone() + Duration::hours(24))))
     })
     .unwrap_or(when)
 }
 
+fn try_set_day<TZ: TimeZone>(day: Option<u32>, when: DateTime<TZ>) -> DateTime<TZ> {
+    day.and_then(|day| {
+        when.with_day(day)
+            .filter(|date| *date >= when)
+            .or_else(|| next_month(&when).with_day(day))
+    })
+    .unwrap_or(when)
+}
+
+fn try_set_month<TZ: TimeZone>(month: Option<u32>, when: DateTime<TZ>) -> DateTime<TZ> {
+    month
+        .and_then(|month| {
+            when.with_month(month)
+                .filter(|date| *date >= when)
+                .or_else(|| next_year(&when).with_month(month))
+        })
+        .unwrap_or(when)
+}
+
+fn next_weekday<TZ: TimeZone>(weekday: Weekday, when: DateTime<TZ>) -> DateTime<TZ> {
+    let current_weekday = when.weekday().num_days_from_monday();
+    let next_weekday = weekday.num_days_from_monday();
+    let skip_days = (next_weekday - current_weekday + 7) % 7;
+    when + Duration::days(skip_days as i64)
+}
+
+fn next_month<TZ: TimeZone>(when: &DateTime<TZ>) -> DateTime<TZ> {
+    let (y, m0) = (when.year(), when.month0());
+    when.clone() + Duration::days(days_of_month0(y, m0))
+}
+
+fn next_year<TZ: TimeZone>(when: &DateTime<TZ>) -> DateTime<TZ> {
+    let y = when.year();
+    when.clone() + Duration::days(days_of_year(y))
+}
+
+fn set_year<TZ: TimeZone>(year: i32, when: DateTime<TZ>) -> DateTime<TZ> {
+    when.with_year(year).unwrap_or(when)
+}
+
+fn try_parse_year<'a, T: Iterator<Item = &'a str>>(tokens: &mut Peekable<T>) -> Option<i32> {
+    tokens
+        .peek()
+        .and_then(|s| s.parse::<i32>().ok())
+        .inspect(|_| {
+            tokens.next();
+        })
+}
+
+fn try_parse_month<'a, T: Iterator<Item = &'a str>>(tokens: &mut Peekable<T>) -> Option<&Month> {
+    tokens.peek().and_then(|s| MONTHS.get(*s)).inspect(|_| {
+        tokens.next();
+    })
+}
+
+fn try_parse_weekday<'a, T: Iterator<Item = &'a str>>(
+    tokens: &mut Peekable<T>,
+) -> Option<&Weekday> {
+    tokens.peek().and_then(|s| WEEKDAYS.get(*s)).inspect(|_| {
+        tokens.next();
+    })
+}
+
+fn try_parse_day<'a, T: Iterator<Item = &'a str>>(tokens: &mut Peekable<T>) -> Option<u32> {
+    tokens
+        .peek()
+        .and_then(|s| s.parse::<u32>().ok())
+        .filter(|day| *day < 32)
+        .inspect(|_| {
+            tokens.next();
+        })
+}
+
+fn set_time<TZ: TimeZone>(time: &NaiveTime, when: &DateTime<TZ>) -> Option<DateTime<TZ>> {
+    when.with_second(time.second())
+        .and_then(|d| d.with_minute(time.minute()))
+        .and_then(|d| d.with_hour(time.hour()))
+}
+
 fn try_parse_time<'a, T: Iterator<Item = &'a str>>(tokens: &mut Peekable<T>) -> Option<NaiveTime> {
-    let h = match tokens.next() {
+    parse_time(tokens).or_else(|| custom_parse_time(tokens))
+}
+
+fn custom_parse_time<'a, T: Iterator<Item = &'a str>>(
+    tokens: &mut Peekable<T>,
+) -> Option<NaiveTime> {
+    let hour = match tokens
+        .peek()
+        .and_then(|h| h.parse::<u32>().ok())
+        .inspect(|_| {
+            tokens.next();
+        }) {
         None => return None,
         Some(h) => h,
     };
 
-    if let Ok(time) = NaiveTime::parse_from_str(h, "%H:%M") {
-        return Some(time);
-    }
-
-    if let Ok(time) = NaiveTime::parse_from_str(h, "%H:%M:%S") {
-        return Some(time);
-    }
-
-    let hour = match h.parse::<u32>() {
-        Err(_) => return None,
-        Ok(hour) => hour,
-    };
-
-    match tokens.peek().copied() {
-        Some("e") => {
+    tokens
+        .peek().copied()
+        .filter(|e| *e != "e")
+        .or_else(|| tokens.next())
+        .and_then(|m| m.parse::<u32>().ok())
+        .inspect(|_| {
             tokens.next();
-            tokens.peek().copied()
-        }
-        x @ Some(_) => x,
-        None => return NaiveTime::from_hms_opt(hour, 0, 0),
-    }
-    .and_then(|m| m.parse::<u32>().ok())
-    .and_then(|min| {
-        tokens.next();
-        NaiveTime::from_hms_opt(hour, min, 0)
-    })
+        })
+        .and_then(|minute| NaiveTime::from_hms_opt(hour, minute, 0))
+        .or_else(|| NaiveTime::from_hms_opt(hour, 0, 0))
+}
+
+fn parse_date<'a, T: Iterator<Item = &'a str>>(tokens: &mut Peekable<T>) -> Option<NaiveDate> {
+    tokens
+        .peek()
+        .and_then(|date| {
+            DATE_FORMATS
+                .iter()
+                .filter_map(|fmt| NaiveDate::parse_from_str(date, fmt).ok())
+                .next()
+        })
+        .inspect(|_| {
+            tokens.next();
+        })
+}
+
+fn parse_time<'a, T: Iterator<Item = &'a str>>(tokens: &mut Peekable<T>) -> Option<NaiveTime> {
+    tokens
+        .peek()
+        .and_then(|time| {
+            TIME_FORMATS
+                .iter()
+                .filter_map(|fmt| NaiveTime::parse_from_str(time, fmt).ok())
+                .next()
+        })
+        .inspect(|_| {
+            tokens.next();
+        })
+}
+
+fn days_of_month0(year: i32, month: u32) -> i64 {
+    // Create a NaiveDate for the first day of the given month
+    let first_day_of_month = NaiveDate::from_ymd_opt(year, month + 1, 1).unwrap();
+
+    let first_day_of_next_month =
+        NaiveDate::from_ymd_opt(year + ((month as i32 + 2) / 12), (month + 1) % 12 + 1, 1).unwrap();
+
+    first_day_of_next_month
+        .signed_duration_since(first_day_of_month)
+        .num_days()
+}
+
+fn days_of_year(year: i32) -> i64 {
+    // Create a NaiveDate for the first day of the given month
+    let first_day_of_year = NaiveDate::from_ymd_opt(year, 1, 1).unwrap();
+
+    let first_day_of_next_year = NaiveDate::from_ymd_opt(year + 1, 1, 1).unwrap();
+
+    first_day_of_next_year
+        .signed_duration_since(first_day_of_year)
+        .num_days()
 }
