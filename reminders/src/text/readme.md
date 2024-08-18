@@ -5,7 +5,7 @@ There are three different kinds of reminders see [this struct](../interface.rs#2
 - "recurrent", ever repeating reminders (like "remind me every 12th of January")
 - "recurrent until", reminders that repeat until a set moment (like "remind me every thursday from April to November")
 
-## Inference mechanism
+## Inference mechanism
 
 Depending on the keywords, Ambrog.io will do its best to infer the type of the reminder. 
 The inference mechanism is implemented at [this file](parsing.rs).
