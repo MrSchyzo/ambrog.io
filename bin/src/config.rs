@@ -7,6 +7,7 @@ pub struct AmbrogioConfig {
     pub user_id: u64,
     pub bot_name: String,
     pub redis: RedisConfig,
+    pub mongo: MongoConfig,
     pub ferrero: FerreroConfig,
     pub updates: UpdatesConfig,
     pub forecast: ForecastConfig,
@@ -14,6 +15,11 @@ pub struct AmbrogioConfig {
 
 pub struct RedisConfig {
     pub url: String,
+}
+
+pub struct MongoConfig {
+    pub url: String,
+    pub db: String,
 }
 
 pub struct FerreroConfig {
@@ -41,6 +47,10 @@ pub async fn get_config() -> &'static AmbrogioConfig {
             bot_name: env_var("BOT_NAME").unwrap_or("Ambrog.io".to_owned()),
             redis: RedisConfig {
                 url: env_var("REDIS_URL").unwrap_or("redis://127.0.0.1".to_owned())
+            },
+            mongo: MongoConfig {
+                url: env_var("MONGO_URL").unwrap_or("mongodb://127.0.0.1:27017".to_owned()),
+                db: env_var("MONGO_DB").unwrap_or("ambrogio".to_owned()),
             },
             ferrero: FerreroConfig {
                 gif_url: env_var("FERRERO_GIF_URL").unwrap_or(gif),

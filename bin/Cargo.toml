@@ -2,7 +2,7 @@
 name = "ambrogio_bin"
 edition = "2021"
 # Version is automatically updated -- think twice before changing it
-version = "0.8.6"
+version = "0.9.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -10,8 +10,9 @@ version = "0.8.6"
 open_meteo = { path = "../open_meteo" }
 ambrogio_users = { path = "../users" }
 ambrogio_core = { path = "../core" }
+ambrogio_reminders = { path = "../reminders" }
 chrono = { version = "0.4" }
-chrono-tz = { version = "0.6" }
+chrono-tz = { version = "0.9" }
 derive_more = "0.99"
 log = "0.4"
 pretty_env_logger = "0.4"

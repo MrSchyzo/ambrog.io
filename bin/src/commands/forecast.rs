@@ -144,7 +144,7 @@ impl ForecastHandler {
         (Self::build_city(&city), days_in_future)
     }
 
-    fn build_city(pieces: &Vec<&str>) -> Option<String> {
+    fn build_city(pieces: &[&str]) -> Option<String> {
         if pieces.is_empty() {
             None
         } else {

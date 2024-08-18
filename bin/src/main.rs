@@ -4,12 +4,17 @@ mod info;
 mod telegram;
 mod update_listener;
 
+use ambrogio_reminders::interface::ChronoTimeProvider;
+use ambrogio_reminders::interface::ReminderCallback;
+use ambrogio_reminders::interface::ReminderEngine;
 use ambrogio_users::data::User as AmbrogioUser;
 use ambrogio_users::data::UserId as AmbrogioUserId;
 use ambrogio_users::RedisUserRepository;
 use ambrogio_users::UserRepository;
 use async_once_cell::OnceCell;
+use axum::async_trait;
 use commands::ferrero::FerreroHandler;
+use commands::reminders::RemindersHandler;
 use commands::shutdown::ShutdownHandler;
 use commands::youtube::YoutubeDownloadHandler;
 use commands::InboundMessage;
@@ -37,6 +42,8 @@ static HANDLERS: OnceCell<Vec<Arc<Handler>>> = OnceCell::new();
 static TELEGRAM: OnceCell<TeloxideProxy> = OnceCell::new();
 static USERS: OnceCell<Arc<RedisUserRepository>> = OnceCell::new();
 static REDIS: OnceCell<Arc<MultiplexedConnection>> = OnceCell::new();
+static REMINDER_ENGINE: OnceCell<Arc<ReminderEngine>> = OnceCell::new();
+static REMINDER_CALLBACK: OnceCell<Arc<TelegramReminderCallback>> = OnceCell::new();
 
 #[tokio::main]
 async fn main() {
@@ -63,7 +70,21 @@ async fn main() {
         }
     });
 
-    greet_master(&bot, super_user_id).await.unwrap();
+    tokio::spawn({
+        let telegram = Arc::new(TeloxideProxy::new(&bot.clone()));
+        let engine = get_engine(telegram).await.unwrap().clone();
+        async move {
+            tracing::info!("Running engine");
+            engine.run().await
+        }
+    });
+
+    greet_master(&bot, super_user_id)
+        .await
+        .inspect_err(|e|
+            tracing::error!("Unable to greet master {super_user_id}: {e}. Perhaps user has never reached out to bot {bot:?}?")
+        )
+        .unwrap();
 
     let elapsed = SystemTime::now()
         .duration_since(start)
@@ -119,7 +140,11 @@ async fn main() {
                 .duration_since(start)
                 .map(|d| d.as_micros())
                 .unwrap_or(0u128);
-            tracing::info!("Executing command took {elapsed}µs");
+            tracing::info!(
+                command = command,
+                elapsed = elapsed,
+                "Command has been executed successfully"
+            );
             Ok(())
         }
     })
@@ -151,6 +176,7 @@ async fn setup_handlers(bot: &Bot) -> Result<Vec<Arc<Handler>>, String> {
         config.forecast.forecast_root.clone(),
     ));
     let telegram_proxy = Arc::new(TeloxideProxy::new(&bot.clone()));
+    let engine = get_engine(telegram_proxy.clone()).await?;
 
     Ok(vec![
         Arc::new(ForecastHandler::new(
@@ -167,6 +193,7 @@ async fn setup_handlers(bot: &Bot) -> Result<Vec<Arc<Handler>>, String> {
             redis,
             &client,
         )),
+        Arc::new(RemindersHandler::new(telegram_proxy.clone(), engine)),
         Arc::new(ShutdownHandler::new(telegram_proxy.clone())),
         Arc::new(EchoMessageHandler::new(telegram_proxy.clone())),
     ])
@@ -185,6 +212,37 @@ async fn get_redis_connection() -> Result<Arc<MultiplexedConnection>, String> {
                 .map(Arc::new)
                 .map_err(|e| e.to_string())
         })
+        .await
+        .cloned()
+}
+
+async fn get_engine(
+    telegram: Arc<dyn TelegramProxy + Send + Sync + 'static>,
+) -> Result<Arc<ReminderEngine>, String> {
+    REMINDER_ENGINE
+        .get_or_try_init(async {
+            let config = get_config().await;
+
+            let callback = get_callback(telegram).await?;
+            Ok(Arc::new(
+                ReminderEngine::new_and_init(
+                    Arc::new(ChronoTimeProvider {}),
+                    callback,
+                    &config.mongo.url,
+                    &config.mongo.db,
+                )
+                .await,
+            ))
+        })
+        .await
+        .cloned()
+}
+
+async fn get_callback(
+    telegram: Arc<dyn TelegramProxy + Send + Sync + 'static>,
+) -> Result<Arc<TelegramReminderCallback>, String> {
+    REMINDER_CALLBACK
+        .get_or_try_init(async { Ok(Arc::new(TelegramReminderCallback { telegram })) })
         .await
         .cloned()
 }
@@ -269,4 +327,19 @@ async fn authenticate_user(
             user,
             text: message.text,
         })
+}
+
+struct TelegramReminderCallback {
+    telegram: Arc<dyn TelegramProxy + Send + Sync + 'static>,
+}
+
+#[async_trait]
+impl ReminderCallback for TelegramReminderCallback {
+    async fn call(&self, user: u64, reminder_id: i32, message: Arc<String>) {
+        let msg = format!("{}\n(promemoria ID {})", message.as_str(), reminder_id);
+        let _ = self
+            .telegram
+            .send_text_to_user(msg, AmbrogioUserId(user))
+            .await;
+    }
 }
