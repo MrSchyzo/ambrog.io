@@ -111,8 +111,6 @@ impl MessageHandler for RemindersHandler {
 
 fn into_command(text: &str, user: User) -> Command {
     let arguments: Vec<&str> = text.splitn(2, '\n').filter(|txt| !txt.is_empty()).collect();
-    tracing::info!("Arguments: {:?}", arguments);
-    tracing::info!("Text: {}", text);
     let lower_tokens = arguments[0]
         .split(' ')
         .filter(|e| !e.is_empty())

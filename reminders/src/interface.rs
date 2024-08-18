@@ -11,8 +11,11 @@ use chrono::{DateTime, Month, NaiveTime, Timelike, Utc, Weekday};
 use chrono_tz::Tz;
 use futures::{pin_mut, StreamExt};
 use mongodb::Client;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Mutex as AsyncMutex;
+use tokio::{
+    sync::mpsc::{channel, Receiver, Sender},
+    time::Instant,
+};
 
 use crate::{
     bitmap::Bitmap,
@@ -73,6 +76,7 @@ impl ReminderEngine {
         };
 
         tracing::info!("Initialising state");
+        let start = Instant::now();
         let records = ret.permanent_storage.get_all().await;
         pin_mut!(records);
         let now = time_provider.now();
@@ -81,9 +85,12 @@ impl ReminderEngine {
                 .ok()
                 .map(|(definition, id)| ret.obtain_storage().insert(definition, &now, Some(id)));
         }
+        let size = ret.obtain_storage().size();
+        let elapsed = start.elapsed().as_micros();
         tracing::info!(
-            "State is initialised with {} record(s)",
-            ret.obtain_storage().size()
+            elapsed_micros = elapsed,
+            record_count = size,
+            "State is initialised"
         );
 
         ret
@@ -117,7 +124,6 @@ impl ReminderEngine {
 
     pub async fn run(&self) {
         loop {
-            tracing::info!("Storage fetching");
             let reminder = match self.dequeue_next() {
                 None => match self.listen().await {
                     None | Some(EngineMessage::Stop) => return,
@@ -125,26 +131,32 @@ impl ReminderEngine {
                 },
                 Some(reminder) => reminder,
             };
+            let (user_id, reminder_id) = reminder.reminder_id();
 
             if let Some(date) = reminder.current_tick().copied() {
                 let now = self.time_provider.now();
                 let time_to_wait = date.signed_duration_since(now).num_milliseconds().max(0) as u64;
                 tracing::info!(
-                    "Waiting for reminder execution {:#?}, sleeping {:?}",
-                    reminder.reminder_id(),
-                    time_to_wait
+                    user_id = user_id,
+                    reminder_id = reminder_id,
+                    sleep_ms = time_to_wait,
+                    target_date = date.to_rfc3339(),
+                    "Sleeping until next reminder",
                 );
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_millis(time_to_wait)) => {
-                        tracing::info!("Executing reminder {:#?}", reminder.reminder_id());
                         tokio::spawn({
                             let message = reminder.message().clone();
-                            let (user, id) = reminder.reminder_id();
                             let callback = self.callback.clone();
                             async move {
-                                tracing::info!("Executing reminder callback ({}, {})", user, id);
-                                callback.call(user, id, message).await;
-                                tracing::info!("Executed reminder callback ({}, {})", user, id);
+                                let start = Instant::now();
+                                callback.call(user_id, reminder_id, message).await;
+                                tracing::info!(
+                                    elapsed_micros = start.elapsed().as_micros(),
+                                    user_id = user_id,
+                                    reminder_id = reminder_id,
+                                    "Executed reminder callback"
+                                );
                             }
                         });
                     }
@@ -154,7 +166,11 @@ impl ReminderEngine {
                 };
             }
 
-            tracing::info!("Reinserting reminder {:#?}", reminder.reminder_id());
+            tracing::info!(
+                user_id = user_id,
+                reminder_id = reminder_id,
+                "Reinserting reminder"
+            );
             self.advance(reminder);
         }
     }

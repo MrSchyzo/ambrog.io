@@ -86,7 +86,6 @@ lazy_static! {
 
 #[allow(clippy::never_loop)]
 pub fn try_parse(tokens: Vec<&str>, now: &DateTime<Utc>) -> Option<Schedule> {
-    tracing::warn!("TODO: try_interpret_definition has to be implemented yet!");
     dispatch_category(tokens.into_iter().skip(1).peekable(), now, &Europe::Rome)
 }
 
@@ -406,8 +405,6 @@ fn build_once<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
     let schedule = Schedule::Once {
         when: when.with_timezone(&Utc),
     };
-
-    tracing::info!("Computed: {:#?}", schedule);
 
     Some(schedule)
 }
@@ -1106,6 +1103,39 @@ mod recurrent_tests {
                 "2024-10-11T18:00:00+02:00",
                 "2024-10-18T18:00:00+02:00",
                 "2024-10-25T18:00:00+02:00",
+            ],
+        );
+    }
+
+    #[test]
+    #[timeout(100)]
+    fn ricordami_dal_13_novembre_al_20_dicembre_ogni_venerdi_alle_14() {
+        assert_schedule_recurrent_until_sequence(
+            "Ricordami dal 13 novembre al 20 dicembre ogni venerdì alle 14",
+            "2024-08-17T20:58:00+02:00",
+            &[
+                "2024-11-15T14:00:00+01:00",
+                "2024-11-22T14:00:00+01:00",
+                "2024-11-29T14:00:00+01:00",
+                "2024-12-06T14:00:00+01:00",
+                "2024-12-13T14:00:00+01:00",
+                "2024-12-20T14:00:00+01:00",
+            ],
+        );
+    }
+
+    #[test]
+    #[timeout(100)]
+    fn ricordami_fino_al_2030_ogni_2_anni_ogni_01_10_alle_13() {
+        assert_schedule_recurrent_until_sequence(
+            "Ricordami fino al 2030 ogni 2 anni ogni 01/10 alle 13",
+            "2021-01-12T20:58:00+02:00",
+            &[
+                "2021-10-01T13:00:00+02:00",
+                "2023-10-01T13:00:00+02:00",
+                "2025-10-01T13:00:00+02:00",
+                "2027-10-01T13:00:00+02:00",
+                "2029-10-01T13:00:00+02:00",
             ],
         );
     }

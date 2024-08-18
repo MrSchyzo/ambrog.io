@@ -140,7 +140,11 @@ async fn main() {
                 .duration_since(start)
                 .map(|d| d.as_micros())
                 .unwrap_or(0u128);
-            tracing::info!("Executing command took {elapsed}µs");
+            tracing::info!(
+                command = command,
+                elapsed = elapsed,
+                "Command has been executed successfully"
+            );
             Ok(())
         }
     })

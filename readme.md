@@ -18,11 +18,7 @@ As a bot, it executes certain operations depending on the command.
 - `promemoria miei`: returns all user's reminders' list
 - `scordati <ID>`: deletes user's reminder with the specified numeric ID
 - `ricordami <TIME EXPR>\n<message in new line>`: creates a reminder with the desired scheduling and the specified message
-  for more info, see `Time expression` section
-
-### Time expression
-The reminder time expression is rather extensive and it needs a dedicated section to explain the extent of its potential.
-TODO
+  for more info, see [`Time expression markdown`](./reminders/src/text/readme.md)
 
 ### Other features
 Apart from commands, the following is supported:
