@@ -9,15 +9,15 @@ use chrono_tz::Tz;
 #[cfg_attr(test, derive(Eq, PartialEq))]
 #[derive(Clone, Debug)]
 pub struct ScheduleGrid {
-    minutes: Bitmap,
-    hours: Bitmap,
-    weeks_of_month: Bitmap,
-    days_of_month: Bitmap,
-    days_of_week: Bitmap,
-    months_of_year: Bitmap,
-    year_cadence: NonZeroU8,
-    year_start: u32,
-    timezone: Tz,
+    pub(crate) minutes: Bitmap,
+    pub(crate) hours: Bitmap,
+    pub(crate) weeks_of_month: Bitmap,
+    pub(crate) days_of_month: Bitmap,
+    pub(crate) days_of_week: Bitmap,
+    pub(crate) months_of_year: Bitmap,
+    pub(crate) year_cadence: NonZeroU8,
+    pub(crate) year_start: u32,
+    pub(crate) timezone: Tz,
 }
 
 impl ScheduleGrid {
@@ -34,7 +34,7 @@ impl ScheduleGrid {
     ) -> Self {
         Self {
             minutes: Bitmap::explicitly_set(NonZeroUsize::new(60).unwrap(), minutes),
-            hours: Bitmap::explicitly_set(NonZeroUsize::new(60).unwrap(), hours),
+            hours: Bitmap::explicitly_set(NonZeroUsize::new(24).unwrap(), hours),
             weeks_of_month: Bitmap::explicitly_set(NonZeroUsize::new(5).unwrap(), weeks_of_month),
             days_of_month: Bitmap::explicitly_set(NonZeroUsize::new(31).unwrap(), days_of_month),
             days_of_week: Bitmap::explicitly_set(NonZeroUsize::new(7).unwrap(), days_of_week),
@@ -138,8 +138,8 @@ impl ScheduleGrid {
             };
             if !(self
                 .days_of_week
-                .get(now.weekday().num_days_from_monday() as usize)
-                && self.weeks_of_month.get(Self::weekday_occurrance(now)))
+                .get(current.weekday().num_days_from_monday() as usize)
+                && self.weeks_of_month.get(Self::weekday_occurrance(&current)))
             {
                 continue;
             }

@@ -54,24 +54,29 @@ impl Bitmap {
         result
     }
 
-    fn set(&mut self, position: usize) {
-        match self {
-            Bitmap::Byte(ref mut x) => *x |= 1u8 << position,
-            Bitmap::Short(ref mut x) => *x |= 1u16 << position,
-            Bitmap::Int(ref mut x) => *x |= 1u32 << position,
-            Bitmap::Longs(ref mut v) if position < v.len() * 64 => {
-                v[position / 64] |= 1u64 << (position % 64)
-            }
-            _ => (),
+    pub fn set(&mut self, position: usize) {
+        self.set_internal(position, true)
+    }
+
+    pub fn unset(&mut self, position: usize) {
+        self.set_internal(position, false)
+    }
+
+    pub fn clear(&mut self) {
+        *self = match self {
+            Self::Byte(_) => Self::Byte(0u8),
+            Self::Short(_) => Self::Short(0u16),
+            Self::Int(_) => Self::Int(0u32),
+            Self::Longs(v) => Self::Longs(v.iter_mut().map(|_| 0).collect()),
         }
     }
 
     pub fn get(&self, position: usize) -> bool {
         match self {
-            Bitmap::Byte(x) => x & (1u8 << position) != 0,
-            Bitmap::Short(x) => x & (1u16 << position) != 0,
-            Bitmap::Int(x) => x & (1u32 << position) != 0,
-            Bitmap::Longs(v) if position < v.len() * 64 => {
+            Self::Byte(x) => x & (1u8 << position) != 0,
+            Self::Short(x) => x & (1u16 << position) != 0,
+            Self::Int(x) => x & (1u32 << position) != 0,
+            Self::Longs(v) if position < v.len() * 64 => {
                 v[position / 64] & (1u64 << (position % 64)) != 0
             }
             _ => false,
@@ -80,15 +85,28 @@ impl Bitmap {
 
     fn len(&self) -> usize {
         match self {
-            Bitmap::Byte(_) => 8,
-            Bitmap::Short(_) => 16,
-            Bitmap::Int(_) => 32,
-            Bitmap::Longs(v) => v.len() * 64,
+            Self::Byte(_) => 8,
+            Self::Short(_) => 16,
+            Self::Int(_) => 32,
+            Self::Longs(v) => v.len() * 64,
         }
     }
 
     fn next_set(&self, from: usize) -> Option<usize> {
         (from + 1..self.len()).find(|&i| self.get(i))
+    }
+
+    fn set_internal(&mut self, position: usize, value: bool) {
+        let bit = if value { 1 } else { 0 };
+        match self {
+            Self::Byte(ref mut x) => *x |= (bit as u8) << position,
+            Self::Short(ref mut x) => *x |= (bit as u16) << position,
+            Self::Int(ref mut x) => *x |= (bit as u32) << position,
+            Self::Longs(ref mut v) if position < v.len() * 64 => {
+                v[position / 64] |= (bit as u64) << (position % 64)
+            }
+            _ => (),
+        }
     }
 
     pub fn iter(&self, from: usize) -> impl Iterator<Item = usize> + '_ {

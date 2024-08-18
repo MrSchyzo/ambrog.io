@@ -6,8 +6,8 @@ use std::{
 
 pub use crate::text::parsing::*;
 use async_trait::async_trait;
-use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
-use chrono_tz::{Europe, Tz};
+use chrono::{DateTime, Month, NaiveTime, Timelike, Utc, Weekday};
+use chrono_tz::Tz;
 use futures::{pin_mut, StreamExt};
 use mongodb::Client;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
@@ -264,40 +264,17 @@ pub enum Schedule {
 }
 
 impl Schedule {
-    pub fn every_fucking_minute_of_your_damn_life(since: Option<DateTime<Utc>>) -> Self {
-        let builder = ScheduleGridBuilder::new(Europe::Rome);
-        Self::Recurrent {
-            since: since.unwrap_or_else(|| {
-                Utc.from_utc_datetime(&NaiveDateTime::from_timestamp_millis(0).unwrap())
-            }),
-            schedule: builder.build(),
-        }
-    }
-
     pub fn next_tick(&self, now: &DateTime<Utc>) -> Option<DateTime<Utc>> {
         match self {
             Self::Once { when } if now < when => Some(*when),
-            Self::Recurrent { since, schedule } => {
-                if now < since {
-                    Some(*since)
-                } else {
-                    schedule.next_scheduled_after(now)
-                }
-            }
+            Self::Recurrent { since, schedule } => schedule.next_scheduled_after(now.max(since)),
             Self::RecurrentUntil {
                 since,
                 until,
                 schedule,
-            } => {
-                if now < since {
-                    Some(*since)
-                } else {
-                    match schedule.next_scheduled_after(now) {
-                        x @ Some(d) if d < *until => x,
-                        _ => None,
-                    }
-                }
-            }
+            } => schedule
+                .next_scheduled_after(now.max(since))
+                .filter(|then| *then < *until),
             _ => None,
         }
     }
@@ -342,6 +319,73 @@ impl ScheduleGridBuilder {
             self.year_start,
             self.timezone,
         )
+    }
+
+    pub fn with_times(&mut self, times: Vec<NaiveTime>) -> &mut Self {
+        let (hours, minutes) = times
+            .into_iter()
+            .map(|time| (time.hour(), time.minute()))
+            .unzip();
+        self.with_hours(hours).with_minutes(minutes)
+    }
+
+    pub fn with_hours(&mut self, hours: Vec<u32>) -> &mut Self {
+        self.hours.clear();
+        for hour in hours {
+            self.hours.set(hour as usize);
+        }
+        self
+    }
+
+    pub fn with_minutes(&mut self, minutes: Vec<u32>) -> &mut Self {
+        self.minutes.clear();
+        for minute in minutes {
+            self.minutes.set(minute as usize);
+        }
+        self
+    }
+
+    pub fn with_weeks_of_month(&mut self, weeks: Vec<u32>) -> &mut Self {
+        self.weeks_of_month.clear();
+        for week in weeks {
+            self.weeks_of_month.set(week as usize);
+        }
+        self
+    }
+
+    pub fn with_weekdays(&mut self, weekdays: Vec<Weekday>) -> &mut Self {
+        self.days_of_week.clear();
+        for day in weekdays {
+            self.days_of_week.set(day.num_days_from_monday() as usize);
+        }
+        self
+    }
+
+    pub fn with_year(&mut self, year: u32) -> &mut Self {
+        self.year_start = year;
+        self
+    }
+
+    pub fn with_months(&mut self, months: Vec<Month>) -> &mut Self {
+        self.months_of_year.clear();
+        for month in months {
+            self.months_of_year
+                .set((month.number_from_month() - 1) as usize);
+        }
+        self
+    }
+
+    pub fn with_days_of_month(&mut self, days: Vec<u8>) -> &mut Self {
+        self.days_of_month.clear();
+        for day in days {
+            self.days_of_month.set((day - 1) as usize);
+        }
+        self
+    }
+
+    pub fn with_year_cadence(&mut self, year: u8) -> &mut Self {
+        self.year_cadence = NonZeroU8::new(year.max(1u8)).unwrap();
+        self
     }
 }
 
