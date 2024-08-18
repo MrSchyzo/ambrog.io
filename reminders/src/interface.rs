@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     num::{NonZeroU8, NonZeroUsize},
     sync::{Arc, Mutex, MutexGuard},
     time::Duration,
@@ -57,7 +58,7 @@ impl ReminderEngine {
         mongo_url: &str,
         mongo_db: &str,
     ) -> Self {
-        let (sender, receiver) = channel::<EngineMessage>(128);
+        let (sender, receiver) = channel::<EngineMessage>(512);
         let db = Client::with_uri_str(mongo_url)
             .await
             .unwrap()
@@ -93,23 +94,25 @@ impl ReminderEngine {
     }
 
     pub async fn add(&self, def: ReminderDefinition) -> Option<i32> {
-        tracing::info!("Adding definition for user {}", def.user_id);
         let id = self
             .obtain_storage()
-            .insert(def.clone(), &self.time_provider.now(), None);
-        tracing::info!("Added definition id: {:?}", id);
+            .insert(def.clone(), &self.time_provider.now(), None)?;
         let _ = self.sender.try_send(EngineMessage::WakeUp);
-        tracing::info!("Inserting to mongo with id: {:?}", id);
-        self.permanent_storage.create(&def, id?).await;
-        tracing::info!("Inserted to mongo with id: {:?}", id);
-        id
+        if !self.permanent_storage.create(&def, id).await {
+            self.internal_defuse(&def.user_id, &id);
+            None
+        } else {
+            Some(id)
+        }
     }
 
-    pub async fn defuse(&self, user: u64, id: i32) {
-        self.permanent_storage.delete(user, id).await;
-        tracing::info!("Defusing reminder ({}, {})", user, id);
-        self.internal_defuse(&user, &id);
-        tracing::info!("Defused reminder ({}, {})", user, id);
+    pub async fn defuse(&self, user: u64, id: i32) -> bool {
+        if self.permanent_storage.delete(user, id).await {
+            self.internal_defuse(&user, &id);
+            true
+        } else {
+            false
+        }
     }
 
     pub async fn run(&self) {
@@ -154,6 +157,14 @@ impl ReminderEngine {
             tracing::info!("Reinserting reminder {:#?}", reminder.reminder_id());
             self.advance(reminder);
         }
+    }
+
+    pub fn get(&self, user_id: &u64, reminder_id: &i32) -> Option<Reminder> {
+        self.obtain_storage().get(user_id, reminder_id)
+    }
+
+    pub fn get_all(&self, user_id: &u64) -> HashMap<i32, Reminder> {
+        self.obtain_storage().get_all(user_id)
     }
 
     fn dequeue_next(&self) -> Option<Reminder> {

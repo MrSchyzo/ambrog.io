@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
-use ambrogio_reminders::interface::{try_parse, ReminderDefinition, ReminderEngine};
+use ambrogio_reminders::interface::{try_parse, Reminder, ReminderDefinition, ReminderEngine};
 use ambrogio_users::data::User;
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
+use chrono_tz::Europe;
+use itertools::Itertools;
 use regex::Regex;
 
 use crate::telegram::TelegramProxy;
@@ -11,10 +13,10 @@ use crate::telegram::TelegramProxy;
 use super::{InboundMessage, MessageHandler};
 
 enum Command {
-    Delete { user: User, reminder_id: i32 },
+    Delete { reminder_id: i32 },
     Create { definition: ReminderDefinition },
-    Read { user: User, reminder_id: i32 },
-    ReadAll { user: User },
+    Read { reminder_id: i32 },
+    ReadAll,
     JustAnswer(String),
 }
 
@@ -51,29 +53,58 @@ impl MessageHandler for RemindersHandler {
 
     async fn handle(&self, InboundMessage { user, text }: InboundMessage) -> Result<(), String> {
         let user_id = user.id();
-        match into_command(&text, user) {
-            Command::Delete { user, reminder_id } => {
-                self.reminder_engine.defuse(user.id().0, reminder_id).await;
+        let msg = match into_command(&text, user) {
+            Command::Delete { reminder_id } => {
+                if self.reminder_engine.defuse(user_id.0, reminder_id).await {
+                    format!("Promemoria con ID {reminder_id} eliminato")
+                } else {
+                    format!("Non sono riuscito a terminare il promemoria con ID {reminder_id}")
+                }
             }
             Command::Create { definition } => {
-                self.reminder_engine.add(definition).await;
+                if let Some(id) = self.reminder_engine.add(definition).await {
+                    format!("Promemoria creato con ID {id}")
+                } else {
+                    "Non sono riuscito a creare un promemoria".to_string()
+                }
             }
-            Command::Read { user, reminder_id } => {
-                let _ = self
-                    .telegram
-                    .send_text_to_user(format!("TODO: read {reminder_id}"), user_id)
-                    .await;
+            Command::Read { reminder_id } => self
+                .reminder_engine
+                .get(&user_id.0, &reminder_id)
+                .as_ref()
+                .map(render_full)
+                .unwrap_or_else(|| format!("Non ho trovato alcun promemoria con ID {reminder_id}")),
+            Command::ReadAll => {
+                let reminders = self
+                    .reminder_engine
+                    .get_all(&user_id.0)
+                    .values()
+                    .sorted_by_key(|rem| {
+                        rem.current_tick()
+                            .map(|d| d.with_timezone(&Utc))
+                            .unwrap_or(DateTime::<Utc>::MAX_UTC)
+                    })
+                    .map(|rem| format!("• {}", render_line(rem)))
+                    .collect::<Vec<_>>();
+                if !reminders.is_empty() {
+                    let pages = reminders.chunks(20).collect::<Vec<_>>();
+                    for (page, reminders) in pages.iter().enumerate() {
+                        let list = reminders.join("\n");
+                        let message = format!(
+                            "Promemoria (pag. {} di {}):\n{}",
+                            page + 1,
+                            pages.len(),
+                            list
+                        );
+                        let _ = self.telegram.send_text_to_user(message, user_id).await;
+                    }
+                    return Ok(());
+                }
+                "Non sono riuscito a trovare alcun promemoria".to_string()
             }
-            Command::ReadAll { user } => {
-                let _ = self
-                    .telegram
-                    .send_text_to_user("TODO: readAll".to_owned(), user_id)
-                    .await;
-            }
-            Command::JustAnswer(msg) => {
-                let _ = self.telegram.send_text_to_user(msg, user_id).await;
-            }
-        }
+            Command::JustAnswer(msg) => msg,
+        };
+        let _ = self.telegram.send_text_to_user(msg, user_id).await;
         Ok(())
     }
 }
@@ -93,11 +124,11 @@ fn into_command(text: &str, user: User) -> Command {
     let tokens = lower_tokens.iter().map(|s| s.as_str()).collect::<Vec<_>>();
 
     match tokens.first().copied() {
-        Some(x) if x == "promemoria" => into_promemoria(tokens, user),
-        Some(x) if x == "ricordami" && arguments.len() > 1 => {
+        Some("promemoria") => into_promemoria(tokens),
+        Some("ricordami") if arguments.len() > 1 => {
             into_ricordami(tokens, arguments[1].trim_start_matches('\n'), user)
         }
-        Some(x) if x == "scordati" => into_scordati(tokens, user),
+        Some("scordati") => into_scordati(tokens),
         x => {
             tracing::info!("Received pragma: {:?}", x);
             generic_help()
@@ -105,24 +136,24 @@ fn into_command(text: &str, user: User) -> Command {
     }
 }
 
-fn into_promemoria(tokens: Vec<&str>, user: User) -> Command {
+fn into_promemoria(tokens: Vec<&str>) -> Command {
     if tokens.contains(&"miei") {
-        return Command::ReadAll { user };
+        return Command::ReadAll;
     }
 
     for token in tokens {
         if let Ok(reminder_id) = token.parse::<i32>() {
-            return Command::Read { user, reminder_id };
+            return Command::Read { reminder_id };
         }
     }
 
     promemoria_help()
 }
 
-fn into_scordati(tokens: Vec<&str>, user: User) -> Command {
+fn into_scordati(tokens: Vec<&str>) -> Command {
     for token in tokens {
         if let Ok(reminder_id) = token.parse::<i32>() {
-            return Command::Delete { user, reminder_id };
+            return Command::Delete { reminder_id };
         }
     }
 
@@ -170,4 +201,46 @@ fn ricordami_help() -> Command {
 Appena faccio mente locale Le faccio sapere come chiedermi di aggiungere promemoria."##
             .to_string(),
     )
+}
+
+fn render_full(reminder: &Reminder) -> String {
+    let current_tick = reminder
+        .current_tick()
+        .map(|d| {
+            d.with_timezone(&Europe::Rome)
+                .format("%d/%m/%Y %T %Z")
+                .to_string()
+        })
+        .unwrap_or_else(|| "N.D. (Terminato)".to_owned());
+    let message = reminder.message().as_str().to_owned();
+    let id = reminder.reminder_id().1;
+    format!(
+        r#"📝 Promemoria ID: {id}
+🕰️ Prossima scadenza: {current_tick}
+
+💬 Messaggio
+{message}
+"#,
+    )
+}
+
+fn render_line(reminder: &Reminder) -> String {
+    let current_tick = reminder
+        .current_tick()
+        .map(|d| {
+            d.with_timezone(&Europe::Rome)
+                .format("%d/%m/%y %H:%M %Z")
+                .to_string()
+        })
+        .unwrap_or_else(|| "Terminato".to_owned());
+    let message = {
+        let msg = reminder.message().as_str().to_owned();
+        match msg.len() {
+            ..=50 => msg,
+            _ => format!("{:.47}...", msg),
+        }
+    };
+
+    let id = reminder.reminder_id().1;
+    format!("[ID {id}, {current_tick}]: {message}")
 }

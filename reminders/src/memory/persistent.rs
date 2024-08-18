@@ -162,18 +162,18 @@ impl MongoloidStorage {
         }
     }
 
-    pub async fn create(&self, definition: &ReminderDefinition, id: i32) {
-        let _ = self
-            .collection
+    pub async fn create(&self, definition: &ReminderDefinition, id: i32) -> bool {
+        self.collection
             .insert_one(MongoloidReminder::new(definition, id))
-            .await;
+            .await
+            .is_ok()
     }
-    pub async fn delete(&self, user_id: u64, id: i32) {
+    pub async fn delete(&self, user_id: u64, id: i32) -> bool {
         let id = ReminderMongoloidId { user: user_id, id };
-        let _ = self
-            .collection
+        self.collection
             .delete_one(doc! {"_id": bson::to_bson(&id).unwrap()})
-            .await;
+            .await
+            .is_ok()
     }
     pub async fn get_all(
         &self,

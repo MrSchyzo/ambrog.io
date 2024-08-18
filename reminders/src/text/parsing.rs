@@ -263,7 +263,7 @@ fn set_date_schedule<'a, T: Iterator<Item = &'a str>>(
     builder: &mut ScheduleGridBuilder,
     tokens: &mut Peekable<T>,
 ) {
-    tokens
+    let pair = tokens
         .peek()
         .copied()
         .map(|s| {
@@ -276,13 +276,14 @@ fn set_date_schedule<'a, T: Iterator<Item = &'a str>>(
             tokens.next();
         })
         .filter(|v| v.len() >= 2)
-        .map(|v| (v[0], v[1]))
-        .map(|(day, month)| {
-            builder.with_days_of_month(vec![day]);
-            Month::try_from(month)
-                .ok()
-                .map(|m| builder.with_months(vec![m]));
-        });
+        .map(|v| (v[0], v[1]));
+
+    if let Some((day, month)) = pair {
+        builder.with_days_of_month(vec![day]);
+        Month::try_from(month)
+            .ok()
+            .map(|m| builder.with_months(vec![m]));
+    }
 }
 
 fn set_month_schedule<'a, T: Iterator<Item = &'a str>>(
@@ -642,12 +643,14 @@ fn try_parse_time<'a, T: Iterator<Item = &'a str>>(tokens: &mut Peekable<T>) -> 
 fn custom_parse_time<'a, T: Iterator<Item = &'a str>>(
     tokens: &mut Peekable<T>,
 ) -> Option<NaiveTime> {
-    let hour = match tokens
+    let parsed_token = tokens
         .peek()
         .and_then(|h| h.parse::<u32>().ok())
         .inspect(|_| {
             tokens.next();
-        }) {
+        });
+
+    let hour = match parsed_token {
         None => return None,
         Some(h) => h,
     };
@@ -1133,7 +1136,7 @@ mod recurrent_tests {
                 assertions(schedule, grid, now);
             }
             _ => {
-                assert!(false, "Expecting Recurrent for {} @ {}", msg, date_str);
+                panic!("Expecting Recurrent for {} @ {}", msg, date_str);
             }
         }
     }
@@ -1173,7 +1176,7 @@ mod recurrent_tests {
                 assertions(schedule, grid, now);
             }
             _ => {
-                assert!(false, "Expecting RecurrentUntil for {} @ {}", msg, date_str);
+                panic!("Expecting RecurrentUntil for {} @ {}", msg, date_str);
             }
         }
     }
@@ -1201,19 +1204,8 @@ mod recurrent_tests {
                 );
             }
             _ => {
-                assert!(false, "Expecting RecurrentUntil for {} @ {}", msg, date_str);
+                panic!("Expecting RecurrentUntil for {} @ {}", msg, date_str);
             }
         }
-    }
-
-    fn assert_schedule_none(msg: &str, date_str: &str) {
-        assert_eq!(
-            None,
-            try_parse(
-                msg.split(' ').collect(),
-                &date_str.parse::<DateTime<Utc>>().unwrap(),
-            ),
-            "When parsing \"{msg}\""
-        );
     }
 }

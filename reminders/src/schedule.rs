@@ -21,6 +21,7 @@ pub struct ScheduleGrid {
 }
 
 impl ScheduleGrid {
+    #[allow(clippy::too_many_arguments)]
     pub fn explicitly_new(
         minutes: Vec<usize>,
         hours: Vec<usize>,
@@ -45,6 +46,7 @@ impl ScheduleGrid {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         minutes: Bitmap,
         hours: Bitmap,
