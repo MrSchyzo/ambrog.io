@@ -19,7 +19,7 @@ lazy_static! {
         "%d/%m/%Y".to_owned(),
     ];
     static ref WEEKDAYS: HashMap<String, Weekday> = {
-        let mut lookup = HashMap::with_capacity(7);
+        let mut lookup = HashMap::with_capacity(14);
         lookup.insert("lunedì".to_owned(), Weekday::Mon);
         lookup.insert("lunedi".to_owned(), Weekday::Mon);
         lookup.insert("martedì".to_owned(), Weekday::Tue);
@@ -391,15 +391,33 @@ fn build_once<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
     now: &DateTime<TZ>,
 ) -> Option<Schedule> {
     let mut when = now.clone();
-    while let Some(token) = tokens.next() {
+    while let Some(token) = tokens.peek().copied() {
         when = match token {
-            "tra" => advance_time(when, &mut tokens),
-            "alle" => at_time(now, when, &mut tokens),
-            "il" | "lo" | "l" => at_date(now, when, &mut tokens),
-            "a" | "ad" => at_month(when, &mut tokens),
-            "nel" => at_beginning_of_year(when, &mut tokens),
+            "tra" => {
+                tokens.next();
+                advance_time(when, &mut tokens)
+            }
+            "alle" => {
+                tokens.next();
+                at_time(now, when, &mut tokens)
+            }
+            "il" | "lo" | "l" => {
+                tokens.next();
+                at_date(now, when, &mut tokens)
+            }
+            "a" | "ad" => {
+                tokens.next();
+                at_month(when, &mut tokens)
+            }
+            "nel" => {
+                tokens.next();
+                at_beginning_of_year(when, &mut tokens)
+            }
             x if WEEKDAYS.contains_key(x) => configure_weekday(when, &mut tokens),
-            _ => when,
+            _ => {
+                tokens.next();
+                when
+            }
         };
     }
     let schedule = Schedule::Once {
@@ -779,8 +797,8 @@ mod once_tests {
     fn test_ricordami_venerdì_alle_00() {
         assert_schedule_once(
             "Ricordami venerdì alle 00",
-            "2024-08-17T20:58:00+02:00",
-            "2024-08-18T00:00:00+02:00",
+            "2024-08-19T20:58:00+02:00",
+            "2024-08-23T00:00:00+02:00",
         );
     }
 
