@@ -59,7 +59,6 @@ See the architecture files ([XML](docs/arch.xml), [SVG](docs/arch.svg), [PNG](do
     - `REDIS_URL=redis://localhost`
     - `MONGO_URL=mongodb://user:pass@localhost:27017`
     - `MONGO_DB=ambrogio`
-    - `BOT_NAME=Ambrog.io`
     - `UPDATES_REDIS_TOPIC=updates`
     - `UPDATES_WEBHOOK_DOMAIN=your-ngrok-domain-name`
     - `FERRERO_GIF_URL=https://67kqts2llyhkzax72fivullwhuo7ifgux6qlfavaherscx4xv3ca.arweave.net/99UJy0teDqyC_9FRWi12PR30FNS_oLKCoDkjIV-XrsQ`

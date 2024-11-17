@@ -37,6 +37,6 @@ jobs:
         continue-on-error: true
         run: cargo clippy -- -D warnings
       - name: Test
-        run: cargo test
+        run: cargo test -- --nocapture
       - name: Compile check
         run: cargo build

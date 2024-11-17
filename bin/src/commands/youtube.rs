@@ -286,8 +286,9 @@ impl MessageHandler for YoutubeDownloadHandler {
 }
 
 async fn upload_file(client: Client, path: PathBuf) -> Result<Url, String> {
+    // See https://gofile.io/api
     tracing::info!("Uploading file {:?} to GoFile", path);
-    let url = Url::parse("https://api.gofile.io/getServer").map_err(|err| format!("{err}"))?;
+    let url = Url::parse("https://api.gofile.io/servers").map_err(|err| format!("{err}"))?;
     let file_name = path
         .file_name()
         .and_then(|x| x.to_str())
@@ -304,7 +305,11 @@ async fn upload_file(client: Client, path: PathBuf) -> Result<Url, String> {
         .await
         .map_err(|err| format!("{err}"))?
         .data
-        .server;
+        .servers
+        .into_iter()
+        .next()
+        .ok_or("Unable to find any server from GoFile".to_owned())?
+        .name;
 
     tracing::info!("Found GoFile server {}", server);
 
@@ -336,12 +341,17 @@ async fn upload_file(client: Client, path: PathBuf) -> Result<Url, String> {
 
 #[derive(Deserialize)]
 struct GetServer {
-    pub data: Server,
+    pub data: Servers,
+}
+
+#[derive(Deserialize)]
+struct Servers {
+    pub servers: Vec<Server>,
 }
 
 #[derive(Deserialize)]
 struct Server {
-    pub server: String,
+    pub name: String,
 }
 
 #[derive(Deserialize)]
@@ -353,4 +363,29 @@ struct UploadFile {
 #[serde(rename_all = "camelCase")]
 struct Upload {
     pub download_page: Url,
+}
+
+#[cfg(test)]
+mod test {
+    use std::{fs::File, io::Write, path::PathBuf};
+
+    use reqwest::Client;
+
+    use super::upload_file;
+
+    #[tokio::test]
+    async fn test_upload_file_to_go_file() {
+        let client = Client::builder().build().unwrap();
+        let path = PathBuf::from(".delme");
+
+        File::create(path.as_path())
+            .unwrap()
+            .write("test".as_bytes())
+            .unwrap();
+
+        let url = upload_file(client, path).await.unwrap();
+        println!("✅ Url = {url}");
+
+        assert!(!url.as_str().is_empty());
+    }
 }
