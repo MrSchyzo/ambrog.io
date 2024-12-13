@@ -5,7 +5,6 @@ use std::str::FromStr;
 
 pub struct AmbrogioConfig {
     pub user_id: u64,
-    pub bot_name: String,
     pub redis: RedisConfig,
     pub mongo: MongoConfig,
     pub ferrero: FerreroConfig,
@@ -44,7 +43,6 @@ pub async fn get_config() -> &'static AmbrogioConfig {
         let gif = "https://67kqts2llyhkzax72fivullwhuo7ifgux6qlfavaherscx4xv3ca.arweave.net/99UJy0teDqyC_9FRWi12PR30FNS_oLKCoDkjIV-XrsQ".to_owned();
         Ok(AmbrogioConfig {
             user_id: env_var_as_u64("USER_ID")?,
-            bot_name: env_var("BOT_NAME").unwrap_or("Ambrog.io".to_owned()),
             redis: RedisConfig {
                 url: env_var("REDIS_URL").unwrap_or("redis://127.0.0.1".to_owned())
             },
