@@ -101,7 +101,7 @@ fn dispatch_category<'a, T: Iterator<Item = &'a str>>(
             build_recurrent(tokens, &context, tz)
         }
         Some("alle") | Some("a") | Some("il") | Some("lo") | Some("l") | Some("nel")
-        | Some("ad") | Some("tra") => build_once(tokens, &context),
+        | Some("ad") | Some("tra") | Some("domani") | Some("per") => build_once(tokens, &context),
         _ => None,
     }
 }
@@ -251,6 +251,10 @@ fn set_numeric_schedule<'a, T: Iterator<Item = &'a str>>(
         }
         Some("di") => {
             tokens.next();
+            builder.with_days_of_month(numbers);
+            set_month_schedule(builder, tokens);
+        }
+        Some(x) if MONTHS.contains_key(x) => {
             builder.with_days_of_month(numbers);
             set_month_schedule(builder, tokens);
         }
@@ -412,6 +416,10 @@ fn build_once<'a, TZ: TimeZone, T: Iterator<Item = &'a str>>(
             "nel" => {
                 tokens.next();
                 at_beginning_of_year(when, &mut tokens)
+            }
+            "domani" => {
+                tokens.next();
+                when + Duration::days(1i64)
             }
             x if WEEKDAYS.contains_key(x) => configure_weekday(when, &mut tokens),
             _ => {
@@ -874,8 +882,22 @@ mod once_tests {
 
     #[test]
     #[timeout(50)]
-    fn test_ricordami_per_domani_does_not_work() {
-        assert_schedule_once_none("Ricordami per domani", "2024-08-17T20:58:00+02:00");
+    fn test_ricordami_per_domani() {
+        assert_schedule_once(
+            "Ricordami per domani",
+            "2024-08-17T20:58:00+02:00",
+            "2024-08-18T20:58:00+02:00",
+        );
+    }
+
+    #[test]
+    #[timeout(50)]
+    fn test_ricordami_domani() {
+        assert_schedule_once(
+            "Ricordami domani",
+            "2024-08-17T20:58:00+02:00",
+            "2024-08-18T20:58:00+02:00",
+        );
     }
 
     fn assert_schedule_once(msg: &str, date_str: &str, expected_when_str: &str) {
@@ -888,17 +910,6 @@ mod once_tests {
             Some(Schedule::Once {
                 when: expected_when_str.parse::<DateTime<Utc>>().unwrap(),
             }),
-        )
-    }
-
-    fn assert_schedule_once_none(msg: &str, date_str: &str) {
-        assert_eq_schedule(
-            msg,
-            try_parse(
-                msg.split(' ').collect(),
-                &date_str.parse::<DateTime<Utc>>().unwrap(),
-            ),
-            None,
         )
     }
 
@@ -974,6 +985,34 @@ mod recurrent_tests {
                 );
                 assert_eq!(
                     "2024-09-05T00:00:00+02:00", result,
+                    "Next schedule available"
+                );
+            },
+        );
+    }
+
+    #[test]
+    #[timeout(50)]
+    fn ricordami_ogni_10_gennaio_alle_13_00() {
+        assert_schedule_recurrent(
+            "Ricordami ogni 10 gennaio alle 13:00",
+            "2024-08-17T20:58:00+02:00",
+            "2024-08-17T20:58:00+02:00",
+            |schedule, grid, now| {
+                let result = schedule
+                    .next_tick(now)
+                    .unwrap()
+                    .with_timezone(&Europe::Rome)
+                    .to_rfc3339();
+
+                assert!(grid.days_of_month.get(9usize), "Expecting 10th of month");
+                assert!(grid.months_of_year.get(0usize), "Expecting January");
+                assert_eq!(grid.year_cadence.get(), 1u8, "Expecting every year");
+                assert_eq!(grid.year_start, 2024u32, "Expecting from 2024");
+                assert!(grid.hours.get(13usize), "Expecting at hour 13");
+                assert!(grid.minutes.get(0usize), "Expecting at minute 0");
+                assert_eq!(
+                    "2025-01-10T13:00:00+01:00", result,
                     "Next schedule available"
                 );
             },
