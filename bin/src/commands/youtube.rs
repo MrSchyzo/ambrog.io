@@ -33,17 +33,35 @@ impl YoutubeDownloadHandler {
             telegram,
             client: client.clone(),
             redis,
-            regex: Regex::new(r"(?i)^(video|audio)?\s+[^\s]+").unwrap(),
+            regex: Regex::new(r"(?i)^(video|audio)(\s+[^\s]+)+").unwrap(),
         }
     }
 
-    async fn download_video(&self, id: UserId, video_id: String) -> Result<(), String> {
+    fn slugified_name(str: &str) -> String {
+        let regex = Regex::new(r"\w|[-_ !.&]").expect("Invalid regex pattern");
+        str.chars()
+            .map(|x| {
+                if regex.is_match(&x.to_string()) {
+                    x
+                } else {
+                    '_'
+                }
+            })
+            .collect()
+    }
+
+    async fn download_video(
+        &self,
+        id: UserId,
+        video_id: String,
+        target_name: Option<String>,
+    ) -> Result<(), String> {
         tokio::spawn({
             let telegram = self.telegram.clone();
             let client = self.client.clone();
             let mut redis = self.redis.clone();
             async move {
-                let output = format!("{}.mp4", video_id);
+                let output = format!("{}.mp4", target_name.as_ref().unwrap_or(&video_id));
                 let path = env::current_dir().unwrap().join("storage").join(&output);
                 let key: String = format!("video:{video_id}");
 
@@ -138,13 +156,18 @@ impl YoutubeDownloadHandler {
         Ok(())
     }
 
-    async fn download_audio(&self, id: UserId, video_id: String) -> Result<(), String> {
+    async fn download_audio(
+        &self,
+        id: UserId,
+        video_id: String,
+        target_name: Option<String>,
+    ) -> Result<(), String> {
         tokio::spawn({
             let telegram = self.telegram.clone();
             let client = self.client.clone();
             let mut redis = self.redis.clone();
             async move {
-                let output = format!("{}.mp3", video_id);
+                let output = format!("{}.mp3", target_name.as_ref().unwrap_or(&video_id));
                 let path = env::current_dir().unwrap().join("storage").join(&output);
                 let key: String = format!("audio:{video_id}");
 
@@ -257,6 +280,12 @@ impl MessageHandler for YoutubeDownloadHandler {
             .collect::<Vec<_>>();
         let command = pieces[0];
         let video = pieces[1];
+        let output_name = if pieces.len() > 2 {
+            pieces[2..].join(" ").to_owned()
+        } else {
+            "".to_owned()
+        };
+        let slugified_name = Some(Self::slugified_name(&output_name)).filter(|s| !s.is_empty());
 
         let video_id = match Url::parse(video) {
             Ok(url) => url
@@ -279,8 +308,8 @@ impl MessageHandler for YoutubeDownloadHandler {
             .await?;
 
         match command.to_lowercase().as_str() {
-            "audio" => return self.download_audio(id, video_id).await,
-            _ => return self.download_video(id, video_id).await,
+            "audio" => return self.download_audio(id, video_id, slugified_name).await,
+            _ => return self.download_video(id, video_id, slugified_name).await,
         };
     }
 }
