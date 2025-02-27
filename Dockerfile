@@ -18,4 +18,4 @@ ARG app_version=unknown
 ENV APP_VERSION=${app_version}
 
 # Enforce upgrades
-ENTRYPOINT ["/bin/sh", "-c" , "apt install -y --only-upgrade ffmpeg yt-dlp && /workdir/ambrogio"]
+ENTRYPOINT ["/bin/sh", "-c" , "apt update --fix-missing && apt install -y --only-upgrade ffmpeg yt-dlp && /workdir/ambrogio"]
