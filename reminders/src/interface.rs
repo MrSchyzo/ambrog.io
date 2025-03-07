@@ -364,6 +364,13 @@ impl ScheduleGridBuilder {
         self
     }
 
+    pub fn all_hours(&mut self) -> &mut Self {
+        for i in 0..23 {
+            self.hours.set(i as usize);
+        }
+        self
+    }
+
     pub fn with_minutes(&mut self, minutes: Vec<u32>) -> &mut Self {
         self.minutes.clear();
         for minute in minutes {
@@ -372,10 +379,24 @@ impl ScheduleGridBuilder {
         self
     }
 
+    pub fn all_minutes(&mut self) -> &mut Self {
+        for i in 0..59 {
+            self.minutes.set(i as usize);
+        }
+        self
+    }
+
     pub fn with_weeks_of_month(&mut self, weeks: Vec<u32>) -> &mut Self {
         self.weeks_of_month.clear();
         for week in weeks {
             self.weeks_of_month.set(week as usize);
+        }
+        self
+    }
+
+    pub fn all_weeks(&mut self) -> &mut Self {
+        for i in 0..4 {
+            self.weeks_of_month.set(i as usize);
         }
         self
     }
@@ -402,10 +423,24 @@ impl ScheduleGridBuilder {
         self
     }
 
+    pub fn all_months(&mut self) -> &mut Self {
+        for i in 0..11 {
+            self.months_of_year.set(i as usize);
+        }
+        self
+    }
+
     pub fn with_days_of_month(&mut self, days: Vec<u8>) -> &mut Self {
         self.days_of_month.clear();
         for day in days {
             self.days_of_month.set((day - 1) as usize);
+        }
+        self
+    }
+
+    pub fn all_days_of_month(&mut self) -> &mut Self {
+        for i in 0..30 {
+            self.days_of_month.set(i as usize);
         }
         self
     }
