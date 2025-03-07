@@ -5,8 +5,10 @@ As a bot, it executes certain operations depending on the command.
 ### Supported commands
 - `meteo [<place>] [<dd/mm/yyyy>]`: returns a hour-by-hour weather forecast for the selected place
 - `[...]languorino[...]`: asks `ambrog.io` some Ferrero® Rocher
-- `audio <YT_video_id> [<filename_without_ext>]`: returns a link with the audio of the selected YT video
-- `video <YT_video_id> [<filename_without_ext>]`: returns a link with the video of the selected YT video
+- `audio <YT_video_id_or_url> [<filename_with_spaces_but_without_ext>]`
+    - returns a link with the audio of the selected YT video (filename defaults to video title)
+- `video <YT_video_id_or_url> [<filename_with_spaces_but_without_ext>]`
+    - returns a link with the video of the selected YT video (filename defaults to video title)
 - Reminder-related commands have a separate chapter due to their complexity
 - (🔐 admin only) `dormi pure`: forces `ambrog.io` to shut down
 - (🔐 admin only) `add <user_id>`: enables telegram `<user_id>` to talk with `ambrog.io`
