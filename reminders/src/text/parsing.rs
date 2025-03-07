@@ -169,10 +169,49 @@ fn set_schedule<'a, T: Iterator<Item = &'a str>>(
             "di" => {
                 tokens.next();
             }
+            x if (DURATION_UNITS.contains_key(x)) => {
+                set_every_unit_schedule(builder, tokens);
+            }
             _ => {
                 set_fittest_schedule(builder, tokens);
             }
         };
+    }
+}
+
+fn set_every_unit_schedule<'a, T: Iterator<Item = &'a str>>(
+    builder: &mut ScheduleGridBuilder,
+    tokens: &mut Peekable<T>,
+) {
+    match tokens.peek().copied() {
+        Some("minuto") => {
+            builder.all_minutes();
+            tokens.next();
+        }
+        Some("ora") => {
+            builder.all_hours();
+            tokens.next();
+        }
+        Some("giorno") => {
+            builder.all_days_of_month();
+            tokens.next();
+        }
+        Some("settimana") => {
+            builder.all_weeks();
+            tokens.next();
+        }
+        Some("mese") => {
+            builder.all_months();
+            tokens.next();
+        }
+        Some("anno") => {
+            builder.with_year_cadence(1);
+            tokens.next();
+        }
+        Some(_) => {
+            tokens.next();
+        }
+        None => (),
     }
 }
 
@@ -215,7 +254,10 @@ fn set_fittest_schedule<'a, T: Iterator<Item = &'a str>>(
         Some(x) if MONTHS.contains_key(x) => set_month_schedule(builder, tokens),
         Some(x) if x.contains(&['.', '/', '-'][..]) => set_date_schedule(builder, tokens),
         Some(x) if x.parse::<u32>().is_ok() => set_numeric_schedule(builder, tokens),
-        _ => (),
+        Some(_) => {
+            tokens.next();
+        }
+        None => (),
     }
 }
 fn set_numeric_schedule<'a, T: Iterator<Item = &'a str>>(
@@ -1075,6 +1117,36 @@ mod recurrent_tests {
                 );
                 assert_eq!(
                     "2025-05-12T13:00:00+02:00", result,
+                    "Next schedule available"
+                );
+            },
+        );
+    }
+
+    #[test]
+    #[timeout(50)]
+    fn ricordami_ogni_giorno() {
+        assert_schedule_recurrent(
+            "Ricordami ogni giorno alle 20",
+            "2024-08-17T20:58:00+02:00",
+            "2024-08-17T20:58:00+02:00",
+            |schedule, grid, now| {
+                let result = schedule
+                    .next_tick(now)
+                    .unwrap()
+                    .with_timezone(&Europe::Rome)
+                    .to_rfc3339();
+
+                for i in 0..30 {
+                    assert!(
+                        grid.days_of_month.get(i as usize),
+                        "{}",
+                        format!("Expecting {i} of month")
+                    )
+                }
+
+                assert_eq!(
+                    "2024-08-18T20:00:00+02:00", result,
                     "Next schedule available"
                 );
             },
