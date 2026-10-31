@@ -114,7 +114,7 @@ impl YoutubeDownloadHandler {
                         if !matches!(fs::try_exists(&download_path).await, Ok(true)) {
                             tracing::info!("Downloading {video_id} into {download_path:?}");
                             let download = command
-                                .into_download_command(download_path.to_str().unwrap())
+                                .to_download_command(download_path.to_str().unwrap())
                                 .output()
                                 .await;
 
@@ -236,7 +236,7 @@ impl MessageHandler for YoutubeDownloadHandler {
                 .map(|c| c.clone().into_owned())
                 .or_else(|| {
                     url.path_segments()
-                        .and_then(|p| p.last())
+                        .and_then(|mut p| p.next_back())
                         .map(|x| x.to_owned())
                 })
                 .unwrap_or(video.to_owned()),
@@ -402,7 +402,7 @@ impl DownloadCommand {
             DownloadCommand::Audio { video_id, .. } => format!("audio:{}", video_id),
         }
     }
-    pub fn into_download_command(&self, download_path: &str) -> Command {
+    pub fn to_download_command(&self, download_path: &str) -> Command {
         match self {
             DownloadCommand::Video { video_id, .. } => {
                 let mut cmd = Command::new("yt-dlp");
@@ -444,7 +444,7 @@ mod test {
 
         File::create(path.as_path())
             .unwrap()
-            .write("test".as_bytes())
+            .write_all("test".as_bytes())
             .unwrap();
 
         let url = upload_file(client, path, ".delme").await.unwrap();

@@ -114,7 +114,7 @@ fn into_command(text: &str, user: User) -> Command {
     let lower_tokens = arguments[0]
         .split(' ')
         .filter(|e| !e.is_empty())
-        .map(|e| e.trim_matches(&[',', ':', '.', '!', '\n']))
+        .map(|e| e.trim_matches([',', ':', '.', '!', '\n']))
         .flat_map(|s| s.split('\''))
         .map(|s| s.to_lowercase())
         .collect::<Vec<String>>();

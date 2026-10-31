@@ -250,7 +250,7 @@ impl TryFrom<(Forecast, Geolocalisation)> for Meteo {
             };
             let point = Weather {
                 time: date
-                    .map_err(|e| format!("Unable to parse date ({}): {e}", &item))?
+                    .map_err(|e| format!("Unable to parse date ({}): {e}", item))?
                     .with_timezone(utc),
                 precipitation: HumanReadableMeasure(
                     precipitation[i].unwrap_or(0f64),

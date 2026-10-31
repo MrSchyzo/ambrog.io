@@ -12,18 +12,18 @@ use crate::telegram::TelegramProxy;
 
 use super::{InboundMessage, MessageHandler};
 
-pub struct UserHandler {
-    telegram: Arc<dyn TelegramProxy + Send + Sync + 'static>,
-    repo: Arc<dyn UserRepository + Send + Sync + 'static>,
+pub struct UserHandler<Proxy, Repository> {
+    telegram: Arc<Proxy>,
+    repo: Arc<Repository>,
     regex: Regex,
 }
 
-impl UserHandler {
-    pub fn new<Proxy, Repository>(telegram: Arc<Proxy>, repo: Arc<Repository>) -> Self
-    where
-        Proxy: TelegramProxy + Send + Sync + 'static,
-        Repository: UserRepository + Send + Sync + 'static,
-    {
+impl<Proxy, Repository> UserHandler<Proxy, Repository>
+where
+    Proxy: TelegramProxy + Send + Sync + 'static,
+    Repository: UserRepository + Send + Sync + 'static,
+{
+    pub fn new(telegram: Arc<Proxy>, repo: Arc<Repository>) -> Self {
         Self {
             telegram,
             repo,
@@ -40,19 +40,23 @@ impl UserHandler {
     }
 
     async fn add_or_remove_user(&self, text: &str, target: UserId) -> String {
-        if text.to_lowercase().starts_with("add") {
-            self.repo.set(User::SimpleUser { id: target })
+        let result = if text.to_lowercase().starts_with("add") {
+            self.repo.set(User::SimpleUser { id: target }).await
         } else {
-            self.repo.remove(target)
-        }
-        .await
-        .map(|_| format!("'{text}' ✅"))
-        .unwrap_or_else(|e| format!("❌ '{text}': {e}!"))
+            self.repo.remove(target).await
+        };
+        result
+            .map(|_| format!("'{text}' ✅"))
+            .unwrap_or_else(|e| format!("❌ '{text}': {e}!"))
     }
 }
 
 #[async_trait]
-impl MessageHandler for UserHandler {
+impl<Proxy, Repository> MessageHandler for UserHandler<Proxy, Repository>
+where
+    Proxy: TelegramProxy + Send + Sync + 'static,
+    Repository: UserRepository + Send + Sync + 'static,
+{
     fn can_accept(&self, msg: &InboundMessage) -> bool {
         self.regex.is_match(&msg.text) && msg.user.is_super_user()
     }

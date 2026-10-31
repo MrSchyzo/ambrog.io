@@ -200,7 +200,7 @@ impl ReminderEngine {
         self.receiver.lock().await.recv().await
     }
 
-    fn obtain_storage(&self) -> MutexGuard<InMemoryStorage> {
+    fn obtain_storage(&self) -> MutexGuard<'_, InMemoryStorage> {
         self.storage.lock().unwrap()
     }
 }
