@@ -1,14 +1,13 @@
 pub mod data;
 
-use async_trait::async_trait;
 use data::{User, UserId};
 use redis::AsyncCommands;
+use std::future::Future;
 
-#[async_trait]
 pub trait UserRepository {
-    async fn get(&self, id: UserId) -> Result<Option<User>, String>;
-    async fn set(&self, user: User) -> Result<bool, String>;
-    async fn remove(&self, id: UserId) -> Result<bool, String>;
+    fn get(&self, id: UserId) -> impl Future<Output = Result<Option<User>, String>> + Send;
+    fn set(&self, user: User) -> impl Future<Output = Result<bool, String>> + Send;
+    fn remove(&self, id: UserId) -> impl Future<Output = Result<bool, String>> + Send;
 }
 
 #[derive(Clone)]
@@ -22,7 +21,6 @@ impl RedisUserRepository {
     }
 }
 
-#[async_trait]
 impl UserRepository for RedisUserRepository {
     async fn get(&self, UserId(id): UserId) -> Result<Option<User>, String> {
         let mut conn = self.connection.clone();
@@ -40,7 +38,7 @@ impl UserRepository for RedisUserRepository {
         let mut conn = self.connection.clone();
         let UserId(id) = user.id();
         let payload = serde_json::to_string(&user).map_err(|e| e.to_string())?;
-        let _ = conn
+        let _: () = conn
             .set(format!("user:{id}"), payload)
             .await
             .map_err(|e| format!("{e}"))?;
@@ -49,7 +47,7 @@ impl UserRepository for RedisUserRepository {
 
     async fn remove(&self, UserId(id): UserId) -> Result<bool, String> {
         let mut conn = self.connection.clone();
-        let _ = conn
+        let _: () = conn
             .del(format!("user:{id}"))
             .await
             .map_err(|e| format!("{e}"))?;

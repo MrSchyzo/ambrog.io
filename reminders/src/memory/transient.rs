@@ -192,7 +192,7 @@ impl InMemoryStorage {
         id
     }
 
-    fn get_reminder(&self, user_id: &u64, id: &i32) -> Option<MutexGuard<ReminderState>> {
+    fn get_reminder(&self, user_id: &u64, id: &i32) -> Option<MutexGuard<'_, ReminderState>> {
         self.user_reminder_lookup
             .get(user_id)
             .and_then(|reminders| reminders.get(id))

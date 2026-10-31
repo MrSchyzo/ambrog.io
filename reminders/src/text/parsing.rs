@@ -715,10 +715,7 @@ fn custom_parse_time<'a, T: Iterator<Item = &'a str>>(
             tokens.next();
         });
 
-    let hour = match parsed_token {
-        None => return None,
-        Some(h) => h,
-    };
+    let hour = parsed_token?;
 
     tokens
         .peek()
